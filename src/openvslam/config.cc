@@ -4,6 +4,8 @@
 #include "openvslam/camera/equirectangular.h"
 #include "openvslam/camera/radial_division.h"
 #include "openvslam/util/string.h"
+#include "openvslam/laser/laser_scanner_base.h"
+#include "openvslam/laser/laser_scanner_2d.h"
 
 #include <iostream>
 #include <memory>
@@ -55,6 +57,13 @@ config::config(const YAML::Node& yaml_node, const std::string& config_file_path)
         camera_ = nullptr;
         throw;
     }
+
+    //======================//
+    // Load laser parameter //
+    //======================//
+
+    // todo: hardcoded for now
+    laser_scanner_ = new laser::laser_scanner_2d();
 
     if (camera_->setup_type_ == camera::setup_type_t::Stereo || camera_->setup_type_ == camera::setup_type_t::RGBD) {
         if (camera_->model_type_ == camera::model_type_t::Equirectangular) {

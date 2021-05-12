@@ -5,6 +5,10 @@
 #include "openvslam/camera/base.h"
 #include "openvslam/util/converter.h"
 #include "openvslam/data/bow_vocabulary.h"
+#include "openvslam/data/laser2d.h"
+#include "openvslam/data/navigation_state.h"
+#include "openvslam/feature/orb_extractor.h"
+#include "openvslam/match/stereo.h"
 
 #include <vector>
 #include <atomic>
@@ -71,7 +75,8 @@ public:
      * @param mask
      */
     frame(const cv::Mat& left_img_gray, const cv::Mat& right_img_gray, const double timestamp,
-          feature::orb_extractor* extractor_left, feature::orb_extractor* extractor_right, bow_vocabulary* bow_vocab,
+          feature::orb_extractor* extractor_left, feature::orb_extractor* extractor_right,
+          bow_vocabulary* bow_vocab,
           camera::base* camera, const float depth_thr,
           const cv::Mat& mask = cv::Mat{});
 
@@ -104,16 +109,6 @@ public:
     void set_cam_pose(const g2o::SE3Quat& cam_pose_cw);
 
     /**
-     * Get camera pose
-     */
-    Mat44_t get_cam_pose() const;
-
-    /**
-     * Get the inverse of the camera pose
-     */
-    Mat44_t get_cam_pose_inv() const;
-
-    /**
      * Update rotation and translation using cam_pose_cw_
      */
     void update_pose_params();
@@ -123,6 +118,8 @@ public:
      * @return
      */
     Vec3_t get_cam_center() const;
+
+    Mat44_t get_cam_pose() const;
 
     /**
      * Get inverse of rotation
@@ -139,6 +136,8 @@ public:
      * Compute BoW representation
      */
     void compute_bow();
+
+    std::vector<landmark *> get_landmarks() const;
 
     /**
      * Check observability of the landmark
@@ -175,9 +174,9 @@ public:
 
     // ORB extractor
     //! ORB extractor for monocular or stereo left image
-    feature::orb_extractor* extractor_ = nullptr;
+    feature::orb_extractor * extractor_ = nullptr;
     //! ORB extractor for stereo right image
-    feature::orb_extractor* extractor_right_ = nullptr;
+    feature::orb_extractor * extractor_right_ = nullptr;
 
     //! timestamp
     double timestamp_;
@@ -254,6 +253,17 @@ public:
     //! list of 1 / sigma^2 for optimization
     std::vector<float> inv_level_sigma_sq_;
 
+    // navigation data which can be relative to the map but needs
+    // to be continous
+    navigation_state nav_state_;
+
+    // absolute navigation data for relocalization, can be
+    // non-continous
+    navigation_state nav_state_map_;
+
+    // laser data linked to this frame
+    data::laser2d laser2d_;
+
 private:
     //! enumeration to control the behavior of extract_orb()
     enum class image_side { Left,
@@ -274,6 +284,8 @@ private:
     void compute_stereo_from_depth(const cv::Mat& right_img_depth);
 
     //! Camera pose
+    //! Nice exlpainer on coordinate conventions:
+    //! https://github.com/raulmur/ORB_SLAM2/issues/226
     //! rotation: world -> camera
     Mat33_t rot_cw_;
     //! translation: world -> camera

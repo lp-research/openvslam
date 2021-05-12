@@ -3,6 +3,7 @@
 
 #include "openvslam/data/frame.h"
 #include "openvslam/initialize/base.h"
+#include "openvslam/data/navigation_state.h"
 
 #include <memory>
 
@@ -15,6 +16,10 @@ class frame;
 class map_database;
 class bow_database;
 } // namespace data
+
+namespace laser {
+class laser_scanner_base;
+}
 
 namespace module {
 
@@ -32,6 +37,7 @@ public:
 
     //! Constructor
     initializer(const camera::setup_type_t setup_type,
+                laser::laser_scanner_base * laser_scanner,
                 data::map_database* map_db, data::bow_database* bow_db,
                 const YAML::Node& yaml_node);
 
@@ -54,11 +60,13 @@ public:
     unsigned int get_initial_frame_id() const;
 
     //! Initialize with the current frame
-    bool initialize(data::frame& curr_frm);
+    bool initialize(data::frame& curr_frm, bool reinitialize = false, bool createNewMap = true);
 
 private:
     //! camera setup type
     const camera::setup_type_t setup_type_;
+
+    laser::laser_scanner_base * laser_scanner_;
     //! map database
     data::map_database* map_db_ = nullptr;
     //! BoW database
@@ -86,6 +94,8 @@ private:
     const float scaling_factor_;
     //! Use fixed random seed for RANSAC if true
     const bool use_fixed_seed_;
+    //! minimum movement in meter required between two navigation frames
+    const float min_movement_;
 
     //-----------------------------------------
     // for monocular camera model
@@ -97,7 +107,7 @@ private:
     bool try_initialize_for_monocular(data::frame& curr_frm);
 
     //! Create an initial map with monocular camera setup
-    bool create_map_for_monocular(data::frame& curr_frm);
+    bool create_map_for_monocular(data::frame& curr_frm, bool reinitialize);
 
     //! Scaling up or down a initial map
     void scale_map(data::keyframe* init_keyfrm, data::keyframe* curr_keyfrm, const double scale);
@@ -118,7 +128,7 @@ private:
     bool try_initialize_for_stereo(data::frame& curr_frm);
 
     //! Create an initial map with stereo or RGBD camera setup
-    bool create_map_for_stereo(data::frame& curr_frm);
+    bool create_map_for_stereo(data::frame& curr_frm, bool reinitialize);
 };
 
 } // namespace module

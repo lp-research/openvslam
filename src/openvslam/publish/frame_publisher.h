@@ -3,8 +3,11 @@
 
 #include "openvslam/config.h"
 #include "openvslam/tracking_module.h"
+#include "openvslam/openvslam_export.h"
+#include "openvslam/publish/frame_state.h"
 
 #include <mutex>
+#include <functional>
 #include <vector>
 
 #include <opencv2/core/core.hpp>
@@ -43,6 +46,12 @@ public:
      * NOTE: should be accessed from viewer thread
      */
     cv::Mat draw_frame(const bool draw_text = true);
+
+    frame_state get_frame_state();
+
+    double get_elapsed_time() const {
+        return elapsed_ms_;
+    }
 
 protected:
     unsigned int draw_initial_points(cv::Mat& img, const std::vector<cv::KeyPoint>& init_keypts,

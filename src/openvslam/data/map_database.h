@@ -5,6 +5,7 @@
 #include "openvslam/data/frame_statistics.h"
 
 #include <mutex>
+#include <functional>
 #include <vector>
 #include <unordered_map>
 
@@ -26,6 +27,9 @@ class bow_database;
 
 class map_database {
 public:
+
+    typedef std::function<void(std::unordered_map<unsigned int, data::landmark *> const&) > LambdaLandmark;
+
     /**
      * Constructor
      */
@@ -72,11 +76,22 @@ public:
      */
     std::vector<landmark*> get_local_landmarks() const;
 
+    void execute_on_landmarks(LambdaLandmark & lmd) const;
+
     /**
      * Get all of the keyframes in the database
      * @return
      */
-    std::vector<keyframe*> get_all_keyframes() const;
+    std::vector<keyframe*> get_all_keyframes(bool hasLock= false) const;
+
+    /**
+     * Get all of the keyframes in the database sorted from
+     * oldest to newest
+     * @return
+     */
+    std::vector<keyframe*> get_all_keyframes_sorted_by_time(bool hasLock = false) const;
+
+    keyframe* get_keyframes_before_by_time(keyframe * keyfrm, bool hasLock = false) const;
 
     /**
      * Get the number of keyframes
@@ -108,8 +123,10 @@ public:
      * @param is_lost
      */
     void update_frame_statistics(const data::frame& frm, const bool is_lost) {
-        std::lock_guard<std::mutex> lock(mtx_map_access_);
-        frm_stats_.update_frame_statistics(frm, is_lost);
+        if (collect_frame_statistics_) {
+            std::lock_guard<std::mutex> lock(mtx_map_access_);
+            frm_stats_.update_frame_statistics(frm, is_lost);
+        }
     }
 
     /**
@@ -118,8 +135,10 @@ public:
      * @param new_keyfrm
      */
     void replace_reference_keyframe(data::keyframe* old_keyfrm, data::keyframe* new_keyfrm) {
-        std::lock_guard<std::mutex> lock(mtx_map_access_);
-        frm_stats_.replace_reference_keyframe(old_keyfrm, new_keyfrm);
+        if (collect_frame_statistics_) {
+            std::lock_guard<std::mutex> lock(mtx_map_access_);
+            frm_stats_.replace_reference_keyframe(old_keyfrm, new_keyfrm);
+        }
     }
 
     /**
@@ -129,6 +148,11 @@ public:
     frame_statistics get_frame_statistics() const {
         std::lock_guard<std::mutex> lock(mtx_map_access_);
         return frm_stats_;
+    }
+
+
+    void set_collect_frame_statistics(bool collect) {
+        collect_frame_statistics_ = collect;
     }
 
     /**
@@ -219,6 +243,7 @@ private:
     // frame statistics for odometry evaluation
 
     //! frame statistics
+    bool collect_frame_statistics_ = false;
     frame_statistics frm_stats_;
 };
 

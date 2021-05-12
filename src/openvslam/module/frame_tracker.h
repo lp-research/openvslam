@@ -3,6 +3,7 @@
 
 #include "openvslam/type.h"
 #include "openvslam/optimize/pose_optimizer.h"
+#include "openvslam/optimize/inertial_pose_optimizer.h"
 
 namespace openvslam {
 
@@ -21,8 +22,12 @@ class frame_tracker {
 public:
     explicit frame_tracker(camera::base* camera, const unsigned int num_matches_thr = 20);
 
+    bool navigation_based_track(data::frame& curr_frm, const data::frame& last_frm, const Mat44_t& velocity) const;
+
+    //! Extrapolate the frame's camera pose if a velocity is known from previously tracked frames
     bool motion_based_track(data::frame& curr_frm, const data::frame& last_frm, const Mat44_t& velocity) const;
 
+    //! Use Bag-of-words matching between frames
     bool bow_match_based_track(data::frame& curr_frm, const data::frame& last_frm, data::keyframe* ref_keyfrm) const;
 
     bool robust_match_based_track(data::frame& curr_frm, const data::frame& last_frm, data::keyframe* ref_keyfrm) const;
@@ -34,6 +39,7 @@ private:
     const unsigned int num_matches_thr_;
 
     const optimize::pose_optimizer pose_optimizer_;
+    const optimize::inertial_pose_optimizer inertial_pose_optimizer_;
 };
 
 } // namespace module

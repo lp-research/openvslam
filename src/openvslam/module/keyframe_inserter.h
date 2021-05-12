@@ -4,6 +4,7 @@
 #include "openvslam/camera/base.h"
 #include "openvslam/data/frame.h"
 #include "openvslam/data/keyframe.h"
+#include "openvslam/data/navigation_state.h"
 
 #include <memory>
 
@@ -15,11 +16,16 @@ namespace data {
 class map_database;
 } // namespace data
 
+namespace laser {
+class laser_scanner_base;
+}
+
 namespace module {
 
 class keyframe_inserter {
 public:
     keyframe_inserter(const camera::setup_type_t setup_type, const float true_depth_thr,
+                      laser::laser_scanner_base * laser_scanner,
                       data::map_database* map_db, data::bow_database* bow_db,
                       const unsigned int min_num_frms, const unsigned int max_num_frms);
 
@@ -33,7 +39,7 @@ public:
      * Check the new keyframe is needed or not
      */
     bool new_keyframe_is_needed(const data::frame& curr_frm, const unsigned int num_tracked_lms,
-                                const data::keyframe& ref_keyfrm) const;
+                                const data::keyframe& ref_keyfrm, bool has_reinitialized = false) const;
 
     /**
      * Insert the new keyframe derived from the current frame
@@ -58,6 +64,8 @@ private:
 
     //! mapping module
     mapping_module* mapper_ = nullptr;
+
+    laser::laser_scanner_base* laser_scanner_ = nullptr;
 
     //! min number of frames to insert keyframe
     const unsigned int min_num_frms_;

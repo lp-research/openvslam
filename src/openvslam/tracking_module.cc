@@ -5,15 +5,20 @@
 #include "openvslam/global_optimization_module.h"
 #include "openvslam/camera/base.h"
 #include "openvslam/data/landmark.h"
+#include "openvslam/data/laser2d.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/data/bow_database.h"
 #include "openvslam/feature/orb_extractor.h"
 #include "openvslam/match/projection.h"
-#include "openvslam/module/local_map_updater.h"
 #include "openvslam/util/image_converter.h"
 #include "openvslam/util/yaml.h"
+#include "openvslam/util/logging.h"
+#include "openvslam/util/transformation.h"
 
 #include <chrono>
+#include <iterator>
+#include <iostream>
+#include <algorithm>
 #include <unordered_map>
 
 #include <spdlog/spdlog.h>
@@ -62,9 +67,11 @@ tracking_module::tracking_module(const std::shared_ptr<config>& cfg, system* sys
     : camera_(cfg->camera_), true_depth_thr_(get_true_depth_thr(camera_, cfg->yaml_node_)),
       depthmap_factor_(get_depthmap_factor(camera_, cfg->yaml_node_)),
       system_(system), map_db_(map_db), bow_vocab_(bow_vocab), bow_db_(bow_db),
-      initializer_(cfg->camera_->setup_type_, map_db, bow_db, util::yaml_optional_ref(cfg->yaml_node_, "Initializer")),
+      initializer_(cfg->camera_->setup_type_, cfg->laser_scanner_, map_db, bow_db, util::yaml_optional_ref(cfg->yaml_node_, "Initializer")),
       frame_tracker_(camera_, 10), relocalizer_(bow_db_), pose_optimizer_(),
-      keyfrm_inserter_(cfg->camera_->setup_type_, true_depth_thr_, map_db, bow_db, 0, cfg->camera_->fps_) {
+      keyfrm_inserter_(cfg->camera_->setup_type_, true_depth_thr_, cfg->laser_scanner_, map_db, bow_db, 0, cfg->camera_->fps_),
+      relocalize_with_navdata_(cfg->relocalize_with_navdata_),
+      time_to_relocalize_(cfg->time_to_relocalize_) {
     spdlog::debug("CONSTRUCT: tracking_module");
 
     feature::orb_params orb_params = get_orb_params(cfg->yaml_node_["Feature"]);
@@ -116,7 +123,8 @@ std::vector<int> tracking_module::get_initial_matches() const {
     return initializer_.get_initial_matches();
 }
 
-Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask) {
+Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask,
+    const navigation_state & navState) {
     const auto start = std::chrono::system_clock::now();
 
     // color conversion
@@ -130,6 +138,7 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
     else {
         curr_frm_ = data::frame(img_gray_, timestamp, extractor_left_, bow_vocab_, camera_, true_depth_thr_, mask);
     }
+    curr_frm_.nav_state_ = navState;
 
     track();
 
@@ -139,7 +148,12 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
     return curr_frm_.cam_pose_cw_;
 }
 
-Mat44_t tracking_module::track_stereo_image(const cv::Mat& left_img_rect, const cv::Mat& right_img_rect, const double timestamp, const cv::Mat& mask) {
+Mat44_t tracking_module::track_stereo_image(const cv::Mat& left_img_rect, const cv::Mat& right_img_rect,
+    const double timestamp,
+    const cv::Mat& mask,
+    const navigation_state & nav_state,
+    const navigation_state & navState_map,
+    const data::laser2d & laser2d_data) {
     const auto start = std::chrono::system_clock::now();
 
     // color conversion
@@ -151,6 +165,9 @@ Mat44_t tracking_module::track_stereo_image(const cv::Mat& left_img_rect, const 
     // create current frame object
     curr_frm_ = data::frame(img_gray_, right_img_gray, timestamp, extractor_left_, extractor_right_, bow_vocab_, camera_, true_depth_thr_, mask);
 
+    curr_frm_.nav_state_ = nav_state;
+    curr_frm_.nav_state_map_ = navState_map;
+    curr_frm_.laser2d_ = laser2d_data;
     track();
 
     const auto end = std::chrono::system_clock::now();
@@ -205,6 +222,14 @@ void tracking_module::track() {
         tracking_state_ = tracker_state_t::Initializing;
     }
 
+    SPDLOG_DEBUG("Received frame with {0} keypoints found", curr_frm_.keypts_.size());
+    SPDLOG_DEBUG("Frame has valid navigation data: {0}", curr_frm_.nav_state_.valid);
+    if (curr_frm_.nav_state_.valid) {
+        SPDLOG_DEBUG("Frame navigation translation:\n{0}\n rotation:\n{1}",
+            curr_frm_.nav_state_.cam_translation,
+            curr_frm_.nav_state_.cam_rotation);
+    }
+
     last_tracking_state_ = tracking_state_;
 
     // check if pause is requested
@@ -221,6 +246,7 @@ void tracking_module::track() {
             return;
         }
 
+        //std::cout << "VS: got " << map_db_->get_all_keyframes().size() << " keyframes" << std::endl; 
         // update the reference keyframe, local keyframes, and local landmarks
         update_local_map();
 
@@ -234,6 +260,7 @@ void tracking_module::track() {
         tracking_state_ = tracker_state_t::Tracking;
     }
     else {
+
         // apply replace of landmarks observed in the last frame
         apply_landmark_replace();
         // update the camera pose of the last frame
@@ -244,17 +271,22 @@ void tracking_module::track() {
         curr_frm_.ref_keyfrm_ = ref_keyfrm_;
 
         auto succeeded = track_current_frame();
+        //std::cout << "VS: track_current_frame " << succeeded << std::endl;
 
         // update the local map and optimize the camera pose of the current frame
         if (succeeded) {
             update_local_map();
-            succeeded = optimize_current_frame_with_local_map();
+            // todo: nav data not used because
+            // the last frame is not useful in case we got lost tracking
+            // so don't use it if we are in lost tracking mode
+            succeeded = optimize_current_frame_with_local_map(tracking_state_ != tracker_state_t::Lost);
         }
 
         // update the motion model
         if (succeeded) {
             update_motion_model();
         }
+        //std::cout << "VS: update_motion_model " << succeeded << std::endl;
 
         // state transition
         tracking_state_ = succeeded ? tracker_state_t::Tracking : tracker_state_t::Lost;
@@ -266,6 +298,7 @@ void tracking_module::track() {
         constexpr float init_retry_thr = 5.0;
         if (tracking_state_ == tracker_state_t::Lost
             && curr_frm_.id_ - initializer_.get_initial_frame_id() < camera_->fps_ * init_retry_thr) {
+            //spdlog::info("tracking lost within {} sec after initialization", init_retry_thr);
             spdlog::info("tracking lost within {} sec after initialization", init_retry_thr);
             system_->request_reset();
             return;
@@ -274,6 +307,7 @@ void tracking_module::track() {
         // show message if tracking has been lost
         if (last_tracking_state_ != tracker_state_t::Lost && tracking_state_ == tracker_state_t::Lost) {
             spdlog::info("tracking lost: frame {}", curr_frm_.id_);
+            time_since_lost_ = 0.0f;
         }
 
         // check to insert the new keyframe derived from the current frame
@@ -302,6 +336,7 @@ void tracking_module::track() {
 bool tracking_module::initialize() {
     // try to initialize with the current frame
     initializer_.initialize(curr_frm_);
+    //std::cout << "VS: tracking module init" << std::endl << curr_frm_.cam_pose_cw_ << std::endl;
 
     // if map building was failed -> reset the map database
     if (initializer_.get_state() == module::initializer_state_t::Wrong) {
@@ -315,6 +350,10 @@ bool tracking_module::initialize() {
         return false;
     }
 
+    // reset so we are ready for possible re-initialaztions during the tracking
+    // with navigation data
+    initializer_.reset();
+
     // succeeded
     return true;
 }
@@ -323,23 +362,94 @@ bool tracking_module::track_current_frame() {
     bool succeeded = false;
     if (tracking_state_ == tracker_state_t::Tracking) {
         // Tracking mode
-        if (velocity_is_valid_ && last_reloc_frm_id_ + 2 < curr_frm_.id_) {
+        // disabled direction navigation mode for now
+        if (curr_frm_.nav_state_.valid && last_frm_.nav_state_.valid &&
+            last_frm_.cam_pose_cw_is_valid_){
+            succeeded = frame_tracker_.navigation_based_track(curr_frm_, last_frm_, velocity_);
+            SPDLOG_DEBUG("Tried navigation-based tracking. Successful = {0}", succeeded);
+        }
+        if (!succeeded && velocity_is_valid_ && last_reloc_frm_id_ + 2 < curr_frm_.id_) {
             // if the motion model is valid
             succeeded = frame_tracker_.motion_based_track(curr_frm_, last_frm_, velocity_);
+            SPDLOG_DEBUG("Tried motien-based tracking. Successful = {0}", succeeded);
         }
         if (!succeeded) {
             succeeded = frame_tracker_.bow_match_based_track(curr_frm_, last_frm_, ref_keyfrm_);
+            SPDLOG_DEBUG("Tried bow-based tracking. Successful = {0}", succeeded);
         }
         if (!succeeded) {
             succeeded = frame_tracker_.robust_match_based_track(curr_frm_, last_frm_, ref_keyfrm_);
+            SPDLOG_DEBUG("Tried robust-match tracking. Successful = {0}", succeeded);
         }
     }
     else {
         // Lost mode
         // try to relocalize
-        succeeded = relocalizer_.relocalize(curr_frm_);
+        time_since_lost_ += 1.0 / camera_->fps_;
+        // if we have navigation data, try to use it to initialize
+        // this is not well tested ..
+/*        if (curr_frm_.nav_state_.valid && last_frm_.nav_state_.valid) {
+
+            SPDLOG_DEBUG("Trying to relocalize with navigation data");
+            Mat44_t last_pose_cw = util::toPose(curr_frm_.nav_state_.cam_rotation,
+                -curr_frm_.nav_state_.cam_rotation * curr_frm_.nav_state_.cam_translation);
+            last_frm_.cam_pose_cw_ = last_pose_cw;
+
+            succeeded = frame_tracker_.navigation_based_track(curr_frm_, last_frm_, velocity_);
+        }*/
+        if (!succeeded) {
+            SPDLOG_DEBUG("Trying to relocalize with keyframes only");
+            succeeded = relocalizer_.relocalize(curr_frm_);
+            if (succeeded) {
+                // see if we can also use the relocalized
+                // positon to update the local map
+                update_local_map();
+                // don't use previous navigation data for refit
+                succeeded = optimize_current_frame_with_local_map(false);
+            }
+
+        }
         if (succeeded) {
             last_reloc_frm_id_ = curr_frm_.id_;
+        }
+
+        // use frame to prepare reinalization
+        // only try this if mapping mode is enabled
+        if (last_frm_.nav_state_map_.valid &&
+            system_->mapping_module_is_enabled() && relocalize_with_navdata_) {
+            // forward frame to initializer to be ready to resume tracking
+            // by reinitialzation
+            SPDLOG_DEBUG("Trying reinitialization with current frame");
+            bool tryReinitialize = !succeeded && (time_since_lost_ > time_to_relocalize_);
+
+            // if relocating fails reinitialize
+            if (tryReinitialize) {
+                initializer_.initialize(curr_frm_, true, tryReinitialize);
+                SPDLOG_DEBUG("Trying reinitialization of map with navigation data");
+
+                // map building failed ...
+                if (initializer_.get_state() == module::initializer_state_t::Wrong) {
+                    // reset
+                    SPDLOG_DEBUG("Resetting reinitializer because map is wrong");
+                    initializer_.reset();
+                    return false;
+                }
+
+                if (initializer_.get_state() == module::initializer_state_t::Succeeded) {
+                    std::cout << "Reinitialization of map with navigation data successful" << std::endl;
+                    // reset initializer so we are ready for the next relocalization
+                    initializer_.reset();
+                    first_keyframe_after_reinitializaiton_ = true;
+                    return true;
+                }
+            }
+
+            // in any case, reset the initializer for next usage if it is not ready
+            // even though we did not use it yet
+            if (initializer_.get_state() == module::initializer_state_t::Wrong ||
+                initializer_.get_state() == module::initializer_state_t::Succeeded) {
+                initializer_.reset();
+            }
         }
     }
     return succeeded;
@@ -381,15 +491,22 @@ void tracking_module::update_last_frame() {
     last_frm_.set_cam_pose(last_cam_pose_from_ref_keyfrm_ * last_ref_keyfrm->get_cam_pose());
 }
 
-bool tracking_module::optimize_current_frame_with_local_map() {
+bool tracking_module::optimize_current_frame_with_local_map(bool use_last_frame) {
     // acquire more 2D-3D matches by reprojecting the local landmarks to the current frame
     search_local_landmarks();
 
     // optimize the pose
-    pose_optimizer_.optimize(curr_frm_);
+    // does not use information from the last frame yet
+    if (use_last_frame) {
+        pose_optimizer_.optimize(curr_frm_, last_frm_);
+    } else {
+        pose_optimizer_.optimize(curr_frm_);
+    }
+
 
     // count up the number of tracked landmarks
     num_tracked_lms_ = 0;
+    //std::cout << "VS: Total number of keypoints in frame: " << curr_frm_.num_keypts_ << std::endl;
     for (unsigned int idx = 0; idx < curr_frm_.num_keypts_; ++idx) {
         auto lm = curr_frm_.landmarks_.at(idx);
         if (!lm) {
@@ -415,13 +532,13 @@ bool tracking_module::optimize_current_frame_with_local_map() {
 
     // if recently relocalized, use the more strict threshold
     if (curr_frm_.id_ < last_reloc_frm_id_ + camera_->fps_ && num_tracked_lms_ < 2 * num_tracked_lms_thr) {
-        spdlog::debug("local map tracking failed: {} matches < {}", num_tracked_lms_, 2 * num_tracked_lms_thr);
+        SPDLOG_DEBUG("local map tracking failed: {} matches < {}", num_tracked_lms_, 2 * num_tracked_lms_thr);
         return false;
     }
 
     // check the threshold of the number of tracked landmarks
     if (num_tracked_lms_ < num_tracked_lms_thr) {
-        spdlog::debug("local map tracking failed: {} matches < {}", num_tracked_lms_, num_tracked_lms_thr);
+        SPDLOG_DEBUG("local map tracking failed: {} matches < {}", num_tracked_lms_, num_tracked_lms_thr);
         return false;
     }
 
@@ -429,7 +546,18 @@ bool tracking_module::optimize_current_frame_with_local_map() {
 }
 
 void tracking_module::update_local_map() {
-    // clean landmark associations
+    update_local_keyframes();
+    update_local_landmarks();
+
+    map_db_->set_local_landmarks(local_landmarks_);
+}
+
+void tracking_module::update_local_keyframes() {
+    constexpr unsigned int max_num_local_keyfrms = 60;
+
+    // count the number of sharing landmarks between the current frame and each of the neighbor keyframes
+    // key: keyframe, value: number of sharing landmarks
+    std::unordered_map<data::keyframe*, unsigned int> keyfrm_weights;
     for (unsigned int idx = 0; idx < curr_frm_.num_keypts_; ++idx) {
         auto lm = curr_frm_.landmarks_.at(idx);
         if (!lm) {
@@ -439,30 +567,125 @@ void tracking_module::update_local_map() {
             curr_frm_.landmarks_.at(idx) = nullptr;
             continue;
         }
+
+        const auto observations = lm->get_observations();
+        for (auto obs : observations) {
+            ++keyfrm_weights[obs.first];
+        }
     }
 
-    // acquire the current local map
-    constexpr unsigned int max_num_local_keyfrms = 60;
-    auto local_map_updater = module::local_map_updater(curr_frm_, max_num_local_keyfrms);
-    if (!local_map_updater.acquire_local_map()) {
+    if (keyfrm_weights.empty()) {
         return;
     }
-    // update the variables
-    local_keyfrms_ = local_map_updater.get_local_keyframes();
-    local_landmarks_ = local_map_updater.get_local_landmarks();
-    auto nearest_covisibility = local_map_updater.get_nearest_covisibility();
 
-    // update the reference keyframe for the current frame
+    // set the aforementioned keyframes as local keyframes
+    // and find the nearest keyframe
+    unsigned int max_weight = 0;
+    data::keyframe* nearest_covisibility = nullptr;
+
+    local_keyfrms_.clear();
+    local_keyfrms_.reserve(4 * keyfrm_weights.size());
+
+    for (auto& keyfrm_weight : keyfrm_weights) {
+        auto keyfrm = keyfrm_weight.first;
+        const auto weight = keyfrm_weight.second;
+
+        if (keyfrm->will_be_erased()) {
+            continue;
+        }
+
+        local_keyfrms_.push_back(keyfrm);
+
+        // avoid duplication
+        keyfrm->local_map_update_identifier = curr_frm_.id_;
+
+        // update the nearest keyframe
+        if (max_weight < weight) {
+            max_weight = weight;
+            nearest_covisibility = keyfrm;
+        }
+    }
+
+    // add the second-order keyframes to the local landmarks
+    auto add_local_keyframe = [this](data::keyframe* keyfrm) {
+        if (!keyfrm) {
+            return false;
+        }
+        if (keyfrm->will_be_erased()) {
+            return false;
+        }
+        // avoid duplication
+        if (keyfrm->local_map_update_identifier == curr_frm_.id_) {
+            return false;
+        }
+        keyfrm->local_map_update_identifier = curr_frm_.id_;
+        local_keyfrms_.push_back(keyfrm);
+        return true;
+    };
+    for (auto iter = local_keyfrms_.cbegin(), end = local_keyfrms_.cend(); iter != end; ++iter) {
+        if (max_num_local_keyfrms < local_keyfrms_.size()) {
+            break;
+        }
+
+        auto keyfrm = *iter;
+
+        // covisibilities of the neighbor keyframe
+        const auto neighbors = keyfrm->graph_node_->get_top_n_covisibilities(10);
+        for (auto neighbor : neighbors) {
+            if (add_local_keyframe(neighbor)) {
+                break;
+            }
+        }
+
+        // children of the spanning tree
+        const auto spanning_children = keyfrm->graph_node_->get_spanning_children();
+        for (auto child : spanning_children) {
+            if (add_local_keyframe(child)) {
+                break;
+            }
+        }
+
+        // parent of the spanning tree
+        auto parent = keyfrm->graph_node_->get_spanning_parent();
+        add_local_keyframe(parent);
+    }
+
+    // update the reference keyframe with the nearest one
     if (nearest_covisibility) {
         ref_keyfrm_ = nearest_covisibility;
         curr_frm_.ref_keyfrm_ = ref_keyfrm_;
     }
+}
 
-    map_db_->set_local_landmarks(local_landmarks_);
+void tracking_module::update_local_landmarks() {
+    local_landmarks_.clear();
+
+    for (auto keyfrm : local_keyfrms_) {
+        const auto lms = keyfrm->get_landmarks();
+
+        for (auto lm : lms) {
+            if (!lm) {
+                continue;
+            }
+            if (lm->will_be_erased()) {
+                continue;
+            }
+
+            // avoid duplication
+            if (lm->identifier_in_local_map_update_ == curr_frm_.id_) {
+                continue;
+            }
+            lm->identifier_in_local_map_update_ = curr_frm_.id_;
+
+            local_landmarks_.push_back(lm);
+        }
+    }
 }
 
 void tracking_module::search_local_landmarks() {
     // select the landmarks which can be reprojected from the ones observed in the current frame
+    //std::cout << "VS: landmarks in current frame: " << curr_frm_.landmarks_.size() << std::endl;
+
     for (auto lm : curr_frm_.landmarks_) {
         if (!lm) {
             continue;
@@ -541,15 +764,26 @@ bool tracking_module::new_keyframe_is_needed() const {
     }
 
     // check the new keyframe is needed
-    return keyfrm_inserter_.new_keyframe_is_needed(curr_frm_, num_tracked_lms_, *ref_keyfrm_);
+    return keyfrm_inserter_.new_keyframe_is_needed(curr_frm_, num_tracked_lms_, *ref_keyfrm_, first_keyframe_after_reinitializaiton_);
 }
 
 void tracking_module::insert_new_keyframe() {
     // insert the new keyframe
     const auto ref_keyfrm = keyfrm_inserter_.insert_new_keyframe(curr_frm_);
+    SPDLOG_DEBUG("Created new keyframe is valid: {0}", ref_keyfrm != nullptr);
+
+    if (ref_keyfrm != nullptr) {
+        first_keyframe_after_reinitializaiton_ = false;
+    }
+
     // set the reference keyframe with the new keyframe
     ref_keyfrm_ = ref_keyfrm ? ref_keyfrm : ref_keyfrm_;
     curr_frm_.ref_keyfrm_ = ref_keyfrm_;
+
+    SPDLOG_DEBUG("Inserted new keyframe with timestamp {0} with at pose:\n{1}\n pos:{2}\n rot_cw:\n {3}",
+        ref_keyfrm->timestamp_,
+        util::to_string(ref_keyfrm_->get_cam_pose()),
+        ref_keyfrm_->get_cam_center(), ref_keyfrm_->get_rotation());
 }
 
 void tracking_module::request_pause() {

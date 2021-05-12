@@ -1,7 +1,6 @@
 #include "openvslam/camera/perspective.h"
 #include "openvslam/camera/fisheye.h"
 #include "openvslam/camera/equirectangular.h"
-#include "openvslam/camera/radial_division.h"
 #include "openvslam/data/common.h"
 #include "openvslam/data/frame.h"
 #include "openvslam/data/keyframe.h"
@@ -35,6 +34,7 @@ keyframe::keyframe(const frame& frm, map_database* map_db, bow_database* bow_db)
       num_scale_levels_(frm.num_scale_levels_), scale_factor_(frm.scale_factor_),
       log_scale_factor_(frm.log_scale_factor_), scale_factors_(frm.scale_factors_),
       level_sigma_sq_(frm.level_sigma_sq_), inv_level_sigma_sq_(frm.inv_level_sigma_sq_),
+      nav_state_(frm.nav_state_),
       // observations
       landmarks_(frm.landmarks_),
       // databases
@@ -174,9 +174,21 @@ Mat33_t keyframe::get_rotation() const {
     return cam_pose_cw_.block<3, 3>(0, 0);
 }
 
+Mat33_t keyframe::get_rotation_inv() const {
+    return get_rotation().transpose();
+}
+
 Vec3_t keyframe::get_translation() const {
     std::lock_guard<std::mutex> lock(mtx_pose_);
     return cam_pose_cw_.block<3, 1>(0, 3);
+}
+
+void keyframe::set_laser_landmark(laser_landmark const& lm) {
+    laser_landmark_ = lm;
+}
+
+laser_landmark const& keyframe::get_laser_landmark() const {
+    return laser_landmark_;
 }
 
 void keyframe::compute_bow() {
@@ -200,7 +212,6 @@ void keyframe::erase_landmark_with_index(const unsigned int idx) {
 }
 
 void keyframe::erase_landmark(landmark* lm) {
-    std::lock_guard<std::mutex> lock(mtx_observations_);
     int idx = lm->get_index_in_keyframe(this);
     if (0 <= idx) {
         landmarks_.at(static_cast<unsigned int>(idx)) = nullptr;
@@ -208,7 +219,6 @@ void keyframe::erase_landmark(landmark* lm) {
 }
 
 void keyframe::replace_landmark(landmark* lm, const unsigned int idx) {
-    std::lock_guard<std::mutex> lock(mtx_observations_);
     landmarks_.at(idx) = lm;
 }
 
@@ -321,31 +331,12 @@ Vec3_t keyframe::triangulate_stereo(const unsigned int idx) const {
         case camera::model_type_t::Equirectangular: {
             throw std::runtime_error("Not implemented: Stereo or RGBD of equirectangular camera model");
         }
-        case camera::model_type_t::RadialDivision: {
-            auto camera = static_cast<camera::radial_division*>(camera_);
-
-            const float depth = depths_.at(idx);
-            if (0.0 < depth) {
-                const float x = keypts_.at(idx).pt.x;
-                const float y = keypts_.at(idx).pt.y;
-                const float unproj_x = (x - camera->cx_) * depth * camera->fx_inv_;
-                const float unproj_y = (y - camera->cy_) * depth * camera->fy_inv_;
-                const Vec3_t pos_c{unproj_x, unproj_y, depth};
-
-                std::lock_guard<std::mutex> lock(mtx_pose_);
-                // camera座標 -> world座標
-                return cam_pose_wc_.block<3, 3>(0, 0) * pos_c + cam_pose_wc_.block<3, 1>(0, 3);
-            }
-            else {
-                return Vec3_t::Zero();
-            }
-        }
     }
 
     return Vec3_t::Zero();
 }
 
-float keyframe::compute_median_depth(const bool abs) const {
+std::optional<float> keyframe::compute_median_depth(const bool abs) const {
     std::vector<landmark*> landmarks;
     Mat44_t cam_pose_cw;
     {
@@ -369,6 +360,12 @@ float keyframe::compute_median_depth(const bool abs) const {
         depths.push_back(abs ? std::abs(pos_c_z) : pos_c_z);
     }
 
+    if (depths.size() == 0) {
+        // if keyframes are only linked by navigation information
+        // there is no depth
+        return std::nullopt;
+    }
+
     std::sort(depths.begin(), depths.end());
 
     return depths.at((depths.size() - 1) / 2);
@@ -390,6 +387,11 @@ void keyframe::prepare_for_erasing() {
         return;
     }
 
+    // cannot erase if this keyframe is from relocalization
+    if (relocalized_) {
+        return;
+    }
+
     // cannot erase if the frag is raised
     if (cannot_be_erased_) {
         return;
@@ -401,14 +403,11 @@ void keyframe::prepare_for_erasing() {
 
     // 2. remove associations between keypoints and landmarks
 
-    {
-        std::lock_guard<std::mutex> lock(mtx_observations_);
-        for (const auto lm : landmarks_) {
-            if (!lm) {
-                continue;
-            }
-            lm->erase_observation(this);
+    for (const auto lm : landmarks_) {
+        if (!lm) {
+            continue;
         }
+        lm->erase_observation(this);
     }
 
     // 3. recover covisibility graph and spanning tree
@@ -426,6 +425,9 @@ void keyframe::prepare_for_erasing() {
 
     map_db_->erase_keyframe(this);
     bow_db_->erase_keyframe(this);
+
+
+    // todo: transfer all imu measurements to the following keyframe
 }
 
 bool keyframe::will_be_erased() {

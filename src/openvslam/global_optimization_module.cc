@@ -16,7 +16,7 @@ global_optimization_module::global_optimization_module(data::map_database* map_d
                                                        const bool fix_scale)
     : loop_detector_(new module::loop_detector(bow_db, bow_vocab, util::yaml_optional_ref(yaml_node, "LoopDetector"), fix_scale)),
       loop_bundle_adjuster_(new module::loop_bundle_adjuster(map_db)),
-      graph_optimizer_(new optimize::graph_optimizer(map_db, fix_scale)) {
+      graph_optimizer_(new optimize::graph_optimizer(map_db, fix_scale)), map_db_(map_db) {
     spdlog::debug("CONSTRUCT: global_optimization_module");
 }
 
@@ -138,7 +138,7 @@ bool global_optimization_module::keyframe_is_queued() const {
 void global_optimization_module::correct_loop() {
     auto final_candidate_keyfrm = loop_detector_->get_selected_candidate_keyframe();
 
-    spdlog::info("detect loop: keyframe {} - keyframe {}", final_candidate_keyfrm->id_, cur_keyfrm_->id_);
+    SPDLOG_DEBUG("detect loop: keyframe {} - keyframe {}", final_candidate_keyfrm->id_, cur_keyfrm_->id_);
     loop_bundle_adjuster_->count_loop_BA_execution();
 
     // 0. pre-processing
@@ -157,8 +157,10 @@ void global_optimization_module::correct_loop() {
     }
 
     // 0-2. update the graph
-
-    cur_keyfrm_->graph_node_->update_connections();
+    {
+        std::lock_guard<std::mutex> lock(data::map_database::mtx_database_);
+        cur_keyfrm_->graph_node_->update_connections(map_db_);
+    }
 
     // 1. compute the Sim3 of the covisibilities of the current keyframe whose Sim3 is already estimated by the loop detector
     //    then, the covisibilities are moved to the corrected positions
@@ -314,7 +316,8 @@ void global_optimization_module::correct_covisibility_keyframes(const module::ke
         neighbor->set_cam_pose(cam_pose_nw);
 
         // update graph
-        neighbor->graph_node_->update_connections();
+        // lock of map_db need which is done by the method calling this one
+        neighbor->graph_node_->update_connections(map_db_);
     }
 }
 
@@ -377,8 +380,10 @@ auto global_optimization_module::extract_new_connections(const std::vector<data:
         // acquire neighbors BEFORE loop fusion (because update_connections() is not called yet)
         const auto neighbors_before_update = covisibility->graph_node_->get_covisibilities();
 
-        // call update_connections()
-        covisibility->graph_node_->update_connections();
+        {
+            std::lock_guard<std::mutex> lock(data::map_database::mtx_database_);
+            covisibility->graph_node_->update_connections(map_db_);
+        }
         // acquire neighbors AFTER loop fusion
         new_connections[covisibility] = covisibility->graph_node_->get_connected_keyframes();
 

@@ -84,6 +84,12 @@ unsigned int local_map_cleaner::remove_redundant_keyframes(data::keyframe* cur_k
         if (covisibility->id_ == origin_keyfrm_id_) {
             continue;
         }
+
+        // don't remove keyframes which have been relocalized
+        if (covisibility->relocalized_) {
+            continue;
+        }
+
         // cannot remove the recent keyframe(s)
         if (covisibility->id_ <= cur_keyfrm->id_
             && cur_keyfrm->id_ <= covisibility->id_ + window_size_not_to_remove) {

@@ -26,9 +26,10 @@ public:
     /**
      * Perform pose optimization
      * @param frm
+     * @param last_frm: If last_frm is given, the navigation data will be used to fit the new pose
      * @return
      */
-    unsigned int optimize(data::frame& frm) const;
+    unsigned int optimize(data::frame& frm, data::frame const& last_frm = data::frame()) const;
 
 private:
     //! robust optimizationの試行回数

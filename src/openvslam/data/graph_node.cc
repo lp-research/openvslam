@@ -1,6 +1,9 @@
 #include "openvslam/data/keyframe.h"
 #include "openvslam/data/graph_node.h"
 #include "openvslam/data/landmark.h"
+#include "openvslam/data/map_database.h"
+
+#include <spdlog/spdlog.h>
 
 namespace openvslam {
 namespace data {
@@ -55,7 +58,7 @@ void graph_node::erase_all_connections() {
     ordered_weights_.clear();
 }
 
-void graph_node::update_connections() {
+void graph_node::update_connections(map_database * map_db, bool has_lock) {
     const auto landmarks = owner_keyfrm_->get_landmarks();
 
     std::map<keyframe*, unsigned int> keyfrm_weights;
@@ -77,6 +80,24 @@ void graph_node::update_connections() {
             }
             // count up weight of `keyfrm`
             keyfrm_weights[keyfrm]++;
+        }
+    }
+
+    // make sure the closest keyframe in time is included if we have navigation data
+    if (owner_keyfrm_->nav_state_.valid && map_db != nullptr) {
+        auto kf_before = map_db->get_keyframes_before_by_time(owner_keyfrm_, has_lock);
+        if (kf_before != nullptr && kf_before->nav_state_.valid) {
+            if (keyfrm_weights.find(kf_before) == keyfrm_weights.end()) {
+                SPDLOG_DEBUG("covisiblity graph of id {0} does not have previous keyframe with id {1} and time distance {2} s, will add it",
+                    owner_keyfrm_->id_,
+                    kf_before->id_,
+                    owner_keyfrm_->timestamp_ - kf_before->timestamp_);
+
+                // make it quite important ^^
+                keyfrm_weights[kf_before] = 1000;
+            } else {
+                SPDLOG_DEBUG("covisiblity graph already contains previous keyframe in time");
+            }
         }
     }
 

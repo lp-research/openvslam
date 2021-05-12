@@ -8,6 +8,10 @@
 
 namespace openvslam {
 
+namespace laser{
+    class laser_scanner_base;
+}
+
 class config {
 public:
     //! Constructor
@@ -27,6 +31,35 @@ public:
 
     //! Camera model
     camera::base* camera_ = nullptr;
+
+    //! Laser scanner model
+    laser::laser_scanner_base * laser_scanner_ = nullptr;
+
+    //! ORB feature parameters
+    feature::orb_params orb_params_;
+
+    //! depth threshold
+    double true_depth_thr_ = 40.0;
+
+    //! margin when looking for matching pixels in stereo images in up and down direction
+    double y_matching_margin_ = 2.0;
+
+    //! depthmap factor (pixel_value / depthmap_factor = true_depth)
+    double depthmap_factor_ = 1.0;
+
+    //! write out a log file
+    bool write_logfile_ = false;
+
+    //! don't start tracking until navigation data is available
+    bool wait_for_navigation_data_ = false;
+
+    //! collect statistics for each frame. accumulates memory for each frame
+    //! and should not be used in production use
+    bool collect_frame_statistics_ = false;
+
+    bool relocalize_with_navdata_ = true;
+
+    double time_to_relocalize_ = 10.0f;
 };
 
 } // namespace openvslam

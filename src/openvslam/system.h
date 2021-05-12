@@ -3,6 +3,12 @@
 
 #include "openvslam/type.h"
 #include "openvslam/data/bow_vocabulary_fwd.h"
+#include "openvslam/openvslam_export.h"
+#include "openvslam/data/navigation_state.h"
+#include "openvslam/data/laser2d.h"
+#include "openvslam/util/stereo_rectifier.h"
+#include "openvslam/publish/frame_state.h"
+#include "openvslam/module/occupancy_map_exporter.h"
 
 #include <string>
 #include <thread>
@@ -71,6 +77,8 @@ public:
     //! Get the frame publisher
     const std::shared_ptr<publish::frame_publisher> get_frame_publisher() const;
 
+    publish::frame_state get_frame_state();
+
     //-----------------------------------------
     // module management
 
@@ -103,11 +111,16 @@ public:
 
     //! Feed a monocular frame to SLAM system
     //! (NOTE: distorted images are acceptable if calibrated)
-    Mat44_t feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{});
+    Mat44_t feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{},
+        const navigation_state & navState = {});
 
     //! Feed a stereo frame to SLAM system
     //! (Note: Left and Right images must be stereo-rectified)
-    Mat44_t feed_stereo_frame(const cv::Mat& left_img, const cv::Mat& right_img, const double timestamp, const cv::Mat& mask = cv::Mat{});
+    Mat44_t feed_stereo_frame(const cv::Mat& left_img, const cv::Mat& right_img, const double timestamp,
+        const cv::Mat& mask = cv::Mat{},
+        const navigation_state & navState = {},
+        const navigation_state & navState_map = {},
+        const data::laser2d & laser2d_data = {});
 
     //! Feed an RGBD frame to SLAM system
     //! (Note: RGB and Depth images must be aligned)
@@ -187,6 +200,8 @@ private:
     std::shared_ptr<publish::frame_publisher> frame_publisher_ = nullptr;
     //! map publisher
     std::shared_ptr<publish::map_publisher> map_publisher_ = nullptr;
+
+    std::unique_ptr<util::stereo_rectifier> rectifier_ = nullptr;
 
     //! system running status flag
     std::atomic<bool> system_is_running_{false};

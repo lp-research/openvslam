@@ -5,10 +5,15 @@
 #include "openvslam/camera/base.h"
 #include "openvslam/data/graph_node.h"
 #include "openvslam/data/bow_vocabulary.h"
+#include "openvslam/data/navigation_state.h"
+#include "openvslam/data/laser2d.h"
+#include "openvslam/data/laser_landmark.h"
+#include "openvslam/openvslam_export.h"
 
 #include <set>
 #include <mutex>
 #include <atomic>
+#include <optional>
 
 #include <g2o/types/sba/types_six_dof_expmap.h>
 #include <nlohmann/json_fwd.hpp>
@@ -91,7 +96,7 @@ public:
     Mat44_t get_cam_pose_inv() const;
 
     /**
-     * Get the camera center
+     * Get the camera center in world coordinates
      */
     Vec3_t get_cam_center() const;
 
@@ -99,6 +104,11 @@ public:
      * Get the rotation of the camera pose
      */
     Mat33_t get_rotation() const;
+
+    /**
+     * Get the rotation inverse of the camera pose
+     */
+    Mat33_t get_rotation_inv() const;
 
     /**
      * Get the translation of the camera pose
@@ -167,7 +177,11 @@ public:
     /**
      * Compute median of depths
      */
-    float compute_median_depth(const bool abs = false) const;
+    std::optional<float> compute_median_depth(const bool abs = false) const;
+
+    void set_laser_landmark(laser_landmark const& lm);
+
+    laser_landmark const& get_laser_landmark() const;
 
     //-----------------------------------------
     // flags
@@ -211,9 +225,11 @@ public:
     //-----------------------------------------
     // meta information
 
+    //! True if the keyframe resulted from relocalization with external navigation data
+    bool relocalized_ = false;
     //! keyframe ID
     unsigned int id_;
-    //! next keyframe ID
+    //! next keyframe ID to assign when a keyframe is created
     static std::atomic<unsigned int> next_id_;
 
     //! source frame ID
@@ -284,6 +300,11 @@ public:
     const std::vector<float> level_sigma_sq_;
     //! list of 1 / sigma^2 for optimization
     const std::vector<float> inv_level_sigma_sq_;
+
+    navigation_state nav_state_;
+
+    //! laser landmarks are only owned by only one keyframe
+    laser_landmark laser_landmark_;
 
 private:
     //-----------------------------------------

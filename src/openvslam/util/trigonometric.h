@@ -45,6 +45,10 @@ inline float sin(float v) {
     return openvslam::util::cos(_PI_2 - v);
 }
 
+inline float toRad(float degrees) {
+    return degrees * (_PI / 180.0f);
+}
+
 } // namespace util
 } // namespace openvslam
 

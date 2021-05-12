@@ -121,6 +121,7 @@ private:
                                         const module::keyframe_Sim3_pairs_t& Sim3s_nw_after_correction) const;
 
     //! Correct the camera poses of the covisibilities
+    //! mutex data::map_database::mtx_database_ must be held when calling this method
     void correct_covisibility_keyframes(const module::keyframe_Sim3_pairs_t& Sim3s_nw_after_correction) const;
 
     //! Detect and replace duplicated landmarks
@@ -214,6 +215,9 @@ private:
 
     //! thread for running loop BA
     std::unique_ptr<std::thread> thread_for_loop_BA_ = nullptr;
+
+    //! map database
+    data::map_database* map_db_ = nullptr;
 };
 
 } // namespace openvslam

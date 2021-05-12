@@ -8,14 +8,20 @@
 #include "openvslam/data/map_database.h"
 #include "openvslam/data/bow_database.h"
 #include "openvslam/data/bow_vocabulary.h"
+#include "openvslam/data/laser2d.h"
 #include "openvslam/io/trajectory_io.h"
 #include "openvslam/io/map_database_io.h"
 #include "openvslam/publish/map_publisher.h"
 #include "openvslam/publish/frame_publisher.h"
+#include "openvslam/util/transformation.h"
 
 #include <thread>
+#include <memory>
 
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_sinks.h>
 
 namespace openvslam {
 
@@ -23,28 +29,44 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     : cfg_(cfg), camera_(cfg->camera_) {
     spdlog::debug("CONSTRUCT: system");
 
-    std::ostringstream message_stream;
+    /* disabled for our release. Outputting this is not
+    required by the config file
+    std::cout << R"(  ___               __   _____ _      _   __  __ )" << std::endl;
+    std::cout << R"( / _ \ _ __  ___ _ _\ \ / / __| |    /_\ |  \/  |)" << std::endl;
+    std::cout << R"(| (_) | '_ \/ -_) ' \\ V /\__ \ |__ / _ \| |\/| |)" << std::endl;
+    std::cout << R"( \___/| .__/\___|_||_|\_/ |___/____/_/ \_\_|  |_|)" << std::endl;
+    std::cout << R"(      |_|                                        )" << std::endl;
+    std::cout << std::endl;
+    std::cout << "Copyright (C) 2019," << std::endl;
+    std::cout << "National Institute of Advanced Industrial Science and Technology (AIST)" << std::endl;
+    std::cout << "All rights reserved." << std::endl;
+    std::cout << std::endl;
+    std::cout << "This is free software," << std::endl;
+    std::cout << "and you are welcome to redistribute it under certain conditions." << std::endl;
+    std::cout << "See the LICENSE file." << std::endl;
+    std::cout << std::endl;
+    */
 
-    message_stream << std::endl;
-    message_stream << R"(  ___               __   _____ _      _   __  __ )" << std::endl;
-    message_stream << R"( / _ \ _ __  ___ _ _\ \ / / __| |    /_\ |  \/  |)" << std::endl;
-    message_stream << R"(| (_) | '_ \/ -_) ' \\ V /\__ \ |__ / _ \| |\/| |)" << std::endl;
-    message_stream << R"( \___/| .__/\___|_||_|\_/ |___/____/_/ \_\_|  |_|)" << std::endl;
-    message_stream << R"(      |_|                                        )" << std::endl;
-    message_stream << std::endl;
-    message_stream << "Copyright (C) 2019," << std::endl;
-    message_stream << "National Institute of Advanced Industrial Science and Technology (AIST)" << std::endl;
-    message_stream << "All rights reserved." << std::endl;
-    message_stream << std::endl;
-    message_stream << "This is free software," << std::endl;
-    message_stream << "and you are welcome to redistribute it under certain conditions." << std::endl;
-    message_stream << "See the LICENSE file." << std::endl;
-    message_stream << std::endl;
+    if (cfg->write_logfile_) {
+
+        // unregister old file logger, if existing
+        // because we might write to a different file location now
+        if (spdlog::get("OVSLAM")) {
+            spdlog::drop("OVSLAM");
+        }
+        auto flogger = spdlog::basic_logger_mt("OVSLAM", "openvslam.log");
+        spdlog::set_default_logger(flogger);
+        spdlog::flush_every(std::chrono::seconds(1));
+        spdlog::set_level(spdlog::level::level_enum::debug);
+        spdlog::set_pattern("VSLAM: %v");
+        spdlog::info("Enabled output to log file {0}", "openvslam.log");
+    } else {
+        spdlog::set_level(spdlog::level::level_enum::warn);
+    }
 
     // show configuration
-    message_stream << *cfg_ << std::endl;
-
-    spdlog::info(message_stream.str());
+    spdlog::info( "VSLAM Configuration: {0}",
+        *cfg_);
 
     // load ORB vocabulary
     spdlog::info("loading ORB vocabulary: {}", vocab_file_path);
@@ -53,7 +75,7 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     try {
         bow_vocab_->loadFromBinaryFile(vocab_file_path);
     }
-    catch (const std::exception&) {
+    catch (const std::exception& e) {
         spdlog::critical("wrong path to vocabulary");
         delete bow_vocab_;
         bow_vocab_ = nullptr;
@@ -73,11 +95,17 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     // database
     cam_db_ = new data::camera_database(camera_);
     map_db_ = new data::map_database();
+
+    map_db_->set_collect_frame_statistics(cfg_->collect_frame_statistics_);
+
     bow_db_ = new data::bow_database(bow_vocab_);
 
     // frame and map publisher
     frame_publisher_ = std::shared_ptr<publish::frame_publisher>(new publish::frame_publisher(cfg_, map_db_));
-    map_publisher_ = std::shared_ptr<publish::map_publisher>(new publish::map_publisher(cfg_, map_db_));
+
+    auto occ_exporter = std::make_shared<module::occupancy_map_exporter>(cfg_, map_db_);
+    map_publisher_ = std::shared_ptr<publish::map_publisher>(new publish::map_publisher(cfg_,
+        occ_exporter, map_db_));
 
     // tracking module
     tracker_ = new tracking_module(cfg_, this, map_db_, bow_vocab_, bow_db_);
@@ -85,6 +113,12 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     mapper_ = new mapping_module(cfg_->yaml_node_["Mapping"], map_db_, camera_->setup_type_ == camera::setup_type_t::Monocular);
     // global optimization module
     global_optimizer_ = new global_optimization_module(map_db_, bow_db_, bow_vocab_, cfg_->yaml_node_, camera_->setup_type_ != camera::setup_type_t::Monocular);
+
+
+    // create retifier, make optional
+    if (cfg_->yaml_node_["StereoRectifier.model"]) {
+        rectifier_ = std::make_unique<util::stereo_rectifier>(cfg_);
+    }
 
     // connect modules each other
     tracker_->set_mapping_module(mapper_);
@@ -238,33 +272,66 @@ void system::abort_loop_BA() {
     global_optimizer_->abort_loop_BA();
 }
 
-Mat44_t system::feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask) {
+Mat44_t system::feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask, const navigation_state & navState) {
     assert(camera_->setup_type_ == camera::setup_type_t::Monocular);
+
+    if (cfg_->wait_for_navigation_data_ && !navState.valid){
+        spdlog::info("Skipping camera input because navigation data is not available.");
+        return Mat44_t::Identity();
+    }
 
     check_reset_request();
 
-    const Mat44_t cam_pose_cw = tracker_->track_monocular_image(img, timestamp, mask);
+    const Mat44_t cam_pose_cw = tracker_->track_monocular_image(img, timestamp, mask, navState);
 
     frame_publisher_->update(tracker_);
+
+    if (navState.valid) {
+        map_publisher_->set_current_nav_pose(util::navDataToCameraPose(navState.cam_rotation,
+            navState.cam_translation));
+    }
+
     if (tracker_->tracking_state_ == tracker_state_t::Tracking) {
         map_publisher_->set_current_cam_pose(cam_pose_cw);
-        map_publisher_->set_current_cam_pose_wc(tracker_->curr_frm_.get_cam_pose_inv());
     }
 
     return cam_pose_cw;
 }
 
-Mat44_t system::feed_stereo_frame(const cv::Mat& left_img, const cv::Mat& right_img, const double timestamp, const cv::Mat& mask) {
+Mat44_t system::feed_stereo_frame(const cv::Mat& left_img, const cv::Mat& right_img, const double timestamp,
+    const cv::Mat& mask,
+    const navigation_state & navState,
+    const navigation_state & navState_map,
+    const data::laser2d & laser2d_data) {
     assert(camera_->setup_type_ == camera::setup_type_t::Stereo);
+
+    if (cfg_->wait_for_navigation_data_ && !navState.valid){
+        spdlog::info("Skipping camera input because navigation data is not available.");
+        return Mat44_t::Identity();
+    }
+
+    cv::Mat rectifiedLeft;
+    cv::Mat rectifiedRight;
+
+    if (rectifier_) {
+        rectifier_->rectify(left_img, right_img, rectifiedLeft, rectifiedRight);
+    } else {
+        rectifiedLeft = left_img;
+        rectifiedRight = right_img;
+    }
 
     check_reset_request();
 
-    const Mat44_t cam_pose_cw = tracker_->track_stereo_image(left_img, right_img, timestamp, mask);
+    const Mat44_t cam_pose_cw = tracker_->track_stereo_image(rectifiedLeft, rectifiedRight, timestamp,
+        mask, navState, navState_map, laser2d_data);
 
     frame_publisher_->update(tracker_);
+    if (navState.valid) {
+        map_publisher_->set_current_nav_pose(util::navDataToCameraPose(navState.cam_rotation,
+            navState.cam_translation));
+    }
     if (tracker_->tracking_state_ == tracker_state_t::Tracking) {
         map_publisher_->set_current_cam_pose(cam_pose_cw);
-        map_publisher_->set_current_cam_pose_wc(tracker_->curr_frm_.get_cam_pose_inv());
     }
 
     return cam_pose_cw;
@@ -280,7 +347,6 @@ Mat44_t system::feed_RGBD_frame(const cv::Mat& rgb_img, const cv::Mat& depthmap,
     frame_publisher_->update(tracker_);
     if (tracker_->tracking_state_ == tracker_state_t::Tracking) {
         map_publisher_->set_current_cam_pose(cam_pose_cw);
-        map_publisher_->set_current_cam_pose_wc(tracker_->curr_frm_.get_cam_pose_inv());
     }
 
     return cam_pose_cw;

@@ -10,6 +10,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+
 namespace openvslam {
 namespace data {
 
@@ -61,14 +63,59 @@ std::vector<landmark*> map_database::get_local_landmarks() const {
     return local_landmarks_;
 }
 
-std::vector<keyframe*> map_database::get_all_keyframes() const {
-    std::lock_guard<std::mutex> lock(mtx_map_access_);
+std::vector<keyframe*> map_database::get_all_keyframes(bool hasLock) const {
     std::vector<keyframe*> keyframes;
-    keyframes.reserve(keyframes_.size());
-    for (const auto id_keyframe : keyframes_) {
-        keyframes.push_back(id_keyframe.second);
+
+    // argh make me nice !
+    if (!hasLock) {
+        std::lock_guard<std::mutex> lock(mtx_map_access_);
+        keyframes.reserve(keyframes_.size());
+        for (const auto id_keyframe : keyframes_) {
+            keyframes.push_back(id_keyframe.second);
+        }
+    } else {
+        keyframes.reserve(keyframes_.size());
+        for (const auto id_keyframe : keyframes_) {
+            keyframes.push_back(id_keyframe.second);
+        }
     }
+
     return keyframes;
+}
+
+std::vector<keyframe*> map_database::get_all_keyframes_sorted_by_time(bool hasLock) const {
+    auto kf = get_all_keyframes(hasLock);
+
+    std::sort(kf.begin(), kf.end(),
+        []( auto * a, auto * b){
+            return a->timestamp_ < b->timestamp_;
+        });
+
+    return kf;
+}
+
+keyframe* map_database::get_keyframes_before_by_time(keyframe * keyfrm, bool hasLock) const {
+    auto keyfrms = get_all_keyframes(hasLock);
+
+    // check which other keyframe is closest in time
+    data::keyframe * keyfrm_before = nullptr;
+    double time_distance = std::numeric_limits<double>::max();
+    for (const auto other_keyfrm: keyfrms) {
+        if (other_keyfrm == keyfrm) {
+            continue;
+        }
+        const double time_distance_this = keyfrm->timestamp_ - other_keyfrm->timestamp_;
+        if (time_distance_this < 0.0) {
+            // this keyframe is after our current one
+            continue;
+        }
+        if (time_distance_this < time_distance){
+            time_distance = time_distance_this;
+            keyfrm_before = other_keyfrm;
+        }
+    }
+
+    return keyfrm_before;
 }
 
 unsigned int map_database::get_num_keyframes() const {
@@ -84,6 +131,12 @@ std::vector<landmark*> map_database::get_all_landmarks() const {
         landmarks.push_back(id_landmark.second);
     }
     return landmarks;
+}
+
+
+void map_database:: execute_on_landmarks(LambdaLandmark & lmd) const {
+    std::lock_guard<std::mutex> lock(mtx_map_access_);
+    lmd(landmarks_);
 }
 
 unsigned int map_database::get_num_landmarks() const {
@@ -192,7 +245,7 @@ void map_database::from_json(camera_database* cam_db, bow_vocabulary* bow_vocab,
         assert(keyframes_.count(id));
         auto keyfrm = keyframes_.at(id);
 
-        keyfrm->graph_node_->update_connections();
+        keyfrm->graph_node_->update_connections(this);
         keyfrm->graph_node_->update_covisibility_orders();
     }
 
@@ -213,7 +266,7 @@ void map_database::from_json(camera_database* cam_db, bow_vocabulary* bow_vocab,
 void map_database::register_keyframe(camera_database* cam_db, bow_vocabulary* bow_vocab, bow_database* bow_db,
                                      const unsigned int id, const nlohmann::json& json_keyfrm) {
     // Metadata
-    const auto src_frm_id = json_keyfrm.at("src_frm_id").get<unsigned int>();
+    const auto src_frm_id = json_keyfrm.at("n_keypts").get<unsigned int>();
     const auto timestamp = json_keyfrm.at("ts").get<double>();
     const auto camera_name = json_keyfrm.at("cam").get<std::string>();
     const auto camera = cam_db->get_camera(camera_name);
@@ -338,7 +391,7 @@ void map_database::to_json(nlohmann::json& json_keyfrms, nlohmann::json& json_la
         assert(keyfrm);
         assert(id == keyfrm->id_);
         assert(!keyfrm->will_be_erased());
-        keyfrm->graph_node_->update_connections();
+        keyfrm->graph_node_->update_connections(this, true);
         assert(!keyfrms.count(std::to_string(id)));
         keyfrms[std::to_string(id)] = keyfrm->to_json();
     }
@@ -358,6 +411,8 @@ void map_database::to_json(nlohmann::json& json_keyfrms, nlohmann::json& json_la
         landmarks[std::to_string(id)] = lm->to_json();
     }
     json_landmarks = landmarks;
+
+    spdlog::info("Conversion of MapDb to json complete");
 }
 
 } // namespace data

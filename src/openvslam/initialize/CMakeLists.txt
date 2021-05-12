@@ -6,6 +6,7 @@ target_sources(${PROJECT_NAME}
                ${CMAKE_CURRENT_SOURCE_DIR}/bearing_vector.h
                ${CMAKE_CURRENT_SOURCE_DIR}/base.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/perspective.cc
+               ${CMAKE_CURRENT_SOURCE_DIR}/perspective_nav.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/bearing_vector.cc)
 
 # Install headers

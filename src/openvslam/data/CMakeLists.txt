@@ -4,6 +4,7 @@ target_sources(${PROJECT_NAME}
                ${CMAKE_CURRENT_SOURCE_DIR}/bow_vocabulary.h
                ${CMAKE_CURRENT_SOURCE_DIR}/common.h
                ${CMAKE_CURRENT_SOURCE_DIR}/frame.h
+               ${CMAKE_CURRENT_SOURCE_DIR}/navigation_state.h
                ${CMAKE_CURRENT_SOURCE_DIR}/keyframe.h
                ${CMAKE_CURRENT_SOURCE_DIR}/landmark.h
                ${CMAKE_CURRENT_SOURCE_DIR}/graph_node.h
@@ -15,6 +16,8 @@ target_sources(${PROJECT_NAME}
                ${CMAKE_CURRENT_SOURCE_DIR}/frame.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/keyframe.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/landmark.cc
+               ${CMAKE_CURRENT_SOURCE_DIR}/laser2d.cc
+               ${CMAKE_CURRENT_SOURCE_DIR}/laser_landmark.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/graph_node.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/camera_database.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/map_database.cc

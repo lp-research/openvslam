@@ -2,8 +2,6 @@
 #include "openvslam/data/map_database.h"
 #include "openvslam/publish/frame_publisher.h"
 
-#include <iomanip>
-
 #include <spdlog/spdlog.h>
 #include <opencv2/imgproc.hpp>
 
@@ -40,7 +38,8 @@ cv::Mat frame_publisher::draw_frame(const bool draw_text) {
         tracking_state = tracking_state_;
 
         // copy tracking information
-        if (tracking_state == tracker_state_t::Initializing) {
+        if (tracking_state == tracker_state_t::Initializing ||
+            tracking_state == tracker_state_t::Lost) {
             init_keypts = init_keypts_;
             init_matches = init_matches_;
         }
@@ -68,6 +67,10 @@ cv::Mat frame_publisher::draw_frame(const bool draw_text) {
     // draw keypoints
     unsigned int num_tracked = 0;
     switch (tracking_state) {
+        case tracker_state_t::Lost: {
+            num_tracked = draw_initial_points(img, init_keypts, init_matches, curr_keypts, mag);
+            break;
+        }
         case tracker_state_t::Initializing: {
             num_tracked = draw_initial_points(img, init_keypts, init_matches, curr_keypts, mag);
             break;
@@ -89,13 +92,20 @@ cv::Mat frame_publisher::draw_frame(const bool draw_text) {
     return img;
 }
 
+frame_state frame_publisher::get_frame_state() {
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return frame_state{curr_keypts_.size()};
+    }
+}
+
 unsigned int frame_publisher::draw_initial_points(cv::Mat& img, const std::vector<cv::KeyPoint>& init_keypts,
                                                   const std::vector<int>& init_matches, const std::vector<cv::KeyPoint>& curr_keypts,
                                                   const float mag) const {
     unsigned int num_tracked = 0;
 
     for (unsigned int i = 0; i < init_matches.size(); ++i) {
-        if (init_matches.at(i) < 0) {
+        if ((init_matches.at(i) < 0) || (init_matches.at(i) > (int(curr_keypts.size()) -1))) {
             continue;
         }
 
@@ -196,6 +206,11 @@ void frame_publisher::update(tracking_module* tracker) {
     is_tracked_ = std::vector<bool>(num_curr_keypts, false);
 
     switch (tracking_state_) {
+        case tracker_state_t::Lost: {
+            init_keypts_ = tracker->get_initial_keypoints();
+            init_matches_ = tracker->get_initial_matches();
+            break;
+        }
         case tracker_state_t::Initializing: {
             init_keypts_ = tracker->get_initial_keypoints();
             init_matches_ = tracker->get_initial_matches();

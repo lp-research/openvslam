@@ -2,10 +2,12 @@
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/optimize/global_bundle_adjuster.h"
-#include "openvslam/optimize/internal/landmark_vertex_container.h"
-#include "openvslam/optimize/internal/se3/shot_vertex_container.h"
-#include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
+#include "openvslam/optimize/g2o/landmark_vertex_container.h"
+#include "openvslam/optimize/g2o/se3/shot_vertex_container.h"
+#include "openvslam/optimize/g2o/se3/navigation_pose_opt_edge.h"
+#include "openvslam/optimize/g2o/se3/reproj_edge_wrapper.h"
 #include "openvslam/util/converter.h"
+#include "openvslam/navigation/navigation.h"
 
 #include <g2o/core/solver.h>
 #include <g2o/core/block_solver.h>
@@ -23,31 +25,31 @@ global_bundle_adjuster::global_bundle_adjuster(data::map_database* map_db, const
     : map_db_(map_db), num_iter_(num_iter), use_huber_kernel_(use_huber_kernel) {}
 
 void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA, bool* const force_stop_flag) const {
-    // 1. Collect the dataset
+    // 1. データを集める
 
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto lms = map_db_->get_all_landmarks();
     std::vector<bool> is_optimized_lm(lms.size(), true);
 
-    // 2. Construct an optimizer
+    // 2. optimizerを構築
 
-    auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
-    auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
-    auto algorithm = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+    auto linear_solver = ::g2o::make_unique<::g2o::LinearSolverCSparse<::g2o::BlockSolver_6_3::PoseMatrixType>>();
+    auto block_solver = ::g2o::make_unique<::g2o::BlockSolver_6_3>(std::move(linear_solver));
+    auto algorithm = new ::g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
 
-    g2o::SparseOptimizer optimizer;
+    ::g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(algorithm);
 
     if (force_stop_flag) {
         optimizer.setForceStopFlag(force_stop_flag);
     }
 
-    // 3. Convert each of the keyframe to the g2o vertex, then set it to the optimizer
+    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
 
-    // Container of the shot vertices
-    internal::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
+    // shot vertexのcontainer
+    g2o::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
 
-    // Set the keyframes to the optimizer
+    // keyframesをoptimizerにセット
     for (const auto keyfrm : keyfrms) {
         if (!keyfrm) {
             continue;
@@ -60,21 +62,78 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         optimizer.addVertex(keyfrm_vtx);
     }
 
-    // 4. Connect the vertices of the keyframe and the landmark by using reprojection edge
+    // insert navigation transition between keyframes
+    // todo: test this code better
+    for (const auto keyfrm : keyfrms) {
+        if (!keyfrm) {
+            continue;
+        }
+        if (keyfrm->will_be_erased()) {
+            continue;
+        }
 
-    // Container of the landmark vertices
-    internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
+        // check if we can add navigation data between these keyframes
+        // add navigation link to previous frame, if navigation data exists
+        if (keyfrm->nav_state_.valid) {
 
-    // Container of the reprojection edges
-    using reproj_edge_wrapper = internal::se3::reproj_edge_wrapper<data::keyframe>;
+            // check which other keyframe is closest in time
+            data::keyframe * keyfrm_before = nullptr;
+            double time_distance = std::numeric_limits<double>::max();
+            for (const auto other_keyfrm: keyfrms) {
+                if (other_keyfrm == keyfrm) {
+                    continue;
+                }
+                const double time_distance_this = keyfrm->timestamp_ - other_keyfrm->timestamp_;
+                if (time_distance_this < 0.0) {
+                    // this keyframe is after our current one
+                    continue;
+                }
+                if (time_distance_this < time_distance){
+                    time_distance = time_distance_this;
+                    keyfrm_before = other_keyfrm;
+                }
+            }
+
+            // don't use keyframes which are too distant in time
+            if (time_distance > 30.0
+                || keyfrm_before == nullptr) {
+                continue;
+            }
+
+            if (keyfrm_before->will_be_erased()
+                || !keyfrm_before->nav_state_.valid) {
+                continue;
+            }
+
+            auto nav_edge = navigation::createNavigationEdge(keyfrm_before, keyfrm,
+                keyfrm_vtx_container.get_vertex(keyfrm_before->id_),
+                keyfrm_vtx_container.get_vertex(keyfrm->id_));
+
+            optimizer.addEdge(nav_edge);
+            SPDLOG_DEBUG("Added navigation edge to global bundle adjuster optimization fit with relative rotation: \n{0}\n translation:\n{1} between keyframe {2} and {3} with time distance {4}",
+                nav_edge->measurement().cam_rotation,
+                nav_edge->measurement().cam_translation,
+                keyfrm_before->id_,
+                keyfrm->id_,
+                keyfrm->timestamp_ - keyfrm_before->timestamp_);
+        }
+    }
+
+    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
+
+    // landmark vertexのcontainer
+    g2o::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
+
+    // reprojection edgeのcontainer
+    using reproj_edge_wrapper = g2o::se3::reproj_edge_wrapper<data::keyframe>;
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
     reproj_edge_wraps.reserve(10 * lms.size());
 
-    // Chi-squared value with significance level of 5%
-    // Two degree-of-freedom (n=2)
+    // 有意水準5%のカイ2乗値
+    // 自由度n=2
     constexpr float chi_sq_2D = 5.99146;
     const float sqrt_chi_sq_2D = std::sqrt(chi_sq_2D);
-    // Three degree-of-freedom (n=3)
+    // 自由度n=3
     constexpr float chi_sq_3D = 7.81473;
     const float sqrt_chi_sq_3D = std::sqrt(chi_sq_3D);
 
@@ -86,7 +145,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         if (lm->will_be_erased()) {
             continue;
         }
-        // Convert the landmark to the g2o vertex, then set it to the optimizer
+        // landmarkをg2oのvertexに変換してoptimizerにセットする
         auto lm_vtx = lm_vtx_container.create_vertex(lm, false);
         optimizer.addVertex(lm_vtx);
 
@@ -127,7 +186,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         }
     }
 
-    // 5. Perform optimization
+    // 5. 最適化を実行
 
     optimizer.initializeOptimization();
     optimizer.optimize(num_iter_);
@@ -136,7 +195,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         return;
     }
 
-    // 6. Extract the result
+    // 6. 結果を取り出す
 
     for (auto keyfrm : keyfrms) {
         if (keyfrm->will_be_erased()) {

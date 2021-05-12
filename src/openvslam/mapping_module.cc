@@ -210,7 +210,10 @@ void mapping_module::store_new_keyframe() {
         lm->update_normal_and_depth();
         lm->compute_descriptor();
     }
-    cur_keyfrm_->graph_node_->update_connections();
+    {
+        std::lock_guard<std::mutex> lock(data::map_database::mtx_database_);
+        cur_keyfrm_->graph_node_->update_connections(map_db_);
+    }
 
     // store the new keyframe to the map database
     map_db_->add_keyframe(cur_keyfrm_);
@@ -246,8 +249,11 @@ void mapping_module::create_new_landmarks() {
 
         // if the scene scale is much smaller than the baseline, abort the triangulation
         if (use_baseline_dist_thr_ratio_) {
-            const float median_depth_in_ngh = ngh_keyfrm->compute_median_depth(true);
-            if (baseline_dist < baseline_dist_thr_ratio_ * median_depth_in_ngh) {
+            const auto median_depth_in_ngh = ngh_keyfrm->compute_median_depth(true);
+            if (!median_depth_in_ngh.has_value()) {
+                continue;
+            }
+            if (baseline_dist < baseline_dist_thr_ratio_ * median_depth_in_ngh.value()) {
                 continue;
             }
         }
@@ -337,7 +343,10 @@ void mapping_module::update_new_keyframe() {
     }
 
     // update the graph
-    cur_keyfrm_->graph_node_->update_connections();
+    {
+        std::lock_guard<std::mutex> lock(data::map_database::mtx_database_);
+        cur_keyfrm_->graph_node_->update_connections(map_db_);
+    }
 }
 
 std::unordered_set<data::keyframe*> mapping_module::get_second_order_covisibilities(const unsigned int first_order_thr,

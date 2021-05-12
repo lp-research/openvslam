@@ -1,6 +1,8 @@
 #ifndef OPENVSLAM_DATA_GRAPH_NODE_H
 #define OPENVSLAM_DATA_GRAPH_NODE_H
 
+#include "openvslam/openvslam_export.h"
+
 #include <mutex>
 #include <vector>
 #include <map>
@@ -9,9 +11,11 @@
 namespace openvslam {
 namespace data {
 
+class map_database;
 class keyframe;
 
-class graph_node {
+// export for pangion_viewer
+class OPENVSLAM_EXPORT graph_node {
 public:
     /**
      * Constructor
@@ -43,8 +47,10 @@ public:
 
     /**
      * Update the connections and the covisibilities by referring landmark observations
+     *
+     * If has_lock is true, the Map DB must not be locked for access
      */
-    void update_connections();
+    void update_connections(map_database * map_db, bool has_lock = false);
 
     /**
      * Update the order of the covisibilities

@@ -3,10 +3,13 @@
 
 #include "openvslam/type.h"
 #include "openvslam/data/frame.h"
+#include "openvslam/data/laser2d.h"
 #include "openvslam/module/initializer.h"
 #include "openvslam/module/relocalizer.h"
 #include "openvslam/module/keyframe_inserter.h"
 #include "openvslam/module/frame_tracker.h"
+#include "openvslam/tracker_state.h"
+#include "openvslam/match/stereo.h"
 
 #include <mutex>
 
@@ -27,14 +30,6 @@ class bow_database;
 namespace feature {
 class orb_extractor;
 } // namespace feature
-
-// tracker state
-enum class tracker_state_t {
-    NotInitialized,
-    Initializing,
-    Tracking,
-    Lost
-};
 
 class tracking_module {
 public:
@@ -70,11 +65,16 @@ public:
 
     //! Track a monocular frame
     //! (NOTE: distorted images are acceptable if calibrated)
-    Mat44_t track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{});
+    Mat44_t track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{},
+        const navigation_state & navState = {});
 
     //! Track a stereo frame
     //! (Note: Left and Right images must be stereo-rectified)
-    Mat44_t track_stereo_image(const cv::Mat& left_img_rect, const cv::Mat& right_img_rect, const double timestamp, const cv::Mat& mask = cv::Mat{});
+    Mat44_t track_stereo_image(const cv::Mat& left_img_rect, const cv::Mat& right_img_rect, const double timestamp,
+        const cv::Mat& mask = cv::Mat{},
+        const navigation_state & nav_state = {},
+        const navigation_state & navState_map = {},
+        const data::laser2d & laser2d_data = {});
 
     //! Track an RGBD frame
     //! (Note: RGB and Depth images must be aligned)
@@ -112,6 +112,10 @@ public:
 
     //! depthmap factor (pixel_value / depthmap_factor = true_depth)
     double depthmap_factor_ = 1.0;
+
+    bool relocalize_with_navdata_ = false;
+
+    double time_to_relocalize_ = 5.0;
 
     //-----------------------------------------
     // variables
@@ -152,10 +156,16 @@ protected:
     void update_last_frame();
 
     //! Optimize the camera pose of the current frame
-    bool optimize_current_frame_with_local_map();
+    bool optimize_current_frame_with_local_map(bool use_last_frame = true);
 
     //! Update the local map
     void update_local_map();
+
+    //! Update the local keyframes
+    void update_local_keyframes();
+
+    //! Update the local landmarks
+    void update_local_landmarks();
 
     //! Acquire more 2D-3D matches using initial camera pose estimation
     void search_local_landmarks();
@@ -221,10 +231,16 @@ protected:
     //! latest frame ID which succeeded in relocalization
     unsigned int last_reloc_frm_id_ = 0;
 
+    //! Time since the tracking was lost
+    double time_since_lost_ = 0.0;
+
     //! motion model
     Mat44_t velocity_;
     //! motion model is valid or not
     bool velocity_is_valid_ = false;
+
+    //! Are we waiting for the first new keyframe after reinitialization ?
+    bool first_keyframe_after_reinitializaiton_ = false;
 
     //! current camera pose from reference keyframe
     //! (to update last camera pose at the beginning of each tracking)
