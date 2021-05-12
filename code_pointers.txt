@@ -1,0 +1,15 @@
+
+Compute and publish odom -> map transform from OpenVSLAM to ROS2:
+https://github.com/lp-research/lpslam_node/blob/main/src/LpSlamNode.cpp#L624
+
+Creation of edge with navigation information:
+https://github.com/lp-research/openvslam/blob/feature/lpr-mods/src/openvslam/navigation/navigation.h#L125
+
+Add navigation edge to local bundle adjuster:
+https://github.com/lp-research/openvslam/blob/feature/lpr-mods/src/openvslam/optimize/local_bundle_adjuster.cc#L146
+
+Create ROS occupancy map from laser scan data:
+https://github.com/lp-research/openvslam/blob/feature/lpr-mods/src/openvslam/module/occupancy_map_exporter.cc#L82
+
+Compute transformation between laser and camera frames:
+https://github.com/lp-research/lpslam/blob/main/src/Trackers/OpenVSLAMStereoTracker.cpp#L263
