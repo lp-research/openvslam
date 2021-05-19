@@ -3,7 +3,6 @@
 
 #include "openvslam/type.h"
 #include "openvslam/optimize/pose_optimizer.h"
-#include "openvslam/optimize/inertial_pose_optimizer.h"
 
 namespace openvslam {
 
@@ -39,7 +38,6 @@ private:
     const unsigned int num_matches_thr_;
 
     const optimize::pose_optimizer pose_optimizer_;
-    const optimize::inertial_pose_optimizer inertial_pose_optimizer_;
 };
 
 } // namespace module

@@ -17,7 +17,7 @@ namespace openvslam {
 namespace module {
 
 frame_tracker::frame_tracker(camera::base* camera, const unsigned int num_matches_thr)
-    : camera_(camera), num_matches_thr_(num_matches_thr), pose_optimizer_(), inertial_pose_optimizer_() {}
+    : camera_(camera), num_matches_thr_(num_matches_thr), pose_optimizer_() {}
 
 bool frame_tracker::navigation_based_track(data::frame& curr_frm, const data::frame& last_frm, const Mat44_t& velocity) const {
     if (!curr_frm.nav_state_.valid || !last_frm.nav_state_.valid) {
