@@ -66,7 +66,7 @@ private:
     //! camera setup type
     const camera::setup_type_t setup_type_;
 
-    laser::laser_scanner_base * laser_scanner_;
+    laser::laser_scanner_base * laser_scanner_ = nullptr;
     //! map database
     data::map_database* map_db_ = nullptr;
     //! BoW database
