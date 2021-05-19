@@ -95,7 +95,7 @@ cv::Mat frame_publisher::draw_frame(const bool draw_text) {
 frame_state frame_publisher::get_frame_state() {
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        return frame_state{curr_keypts_.size()};
+        return frame_state{curr_keypts_.size(), tracking_state_};
     }
 }
 
