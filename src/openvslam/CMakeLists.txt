@@ -9,20 +9,15 @@ set(json_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/3rd/json/include)
 # g2o
 find_package(g2o REQUIRED
              COMPONENTS
-             g2o::core
-             g2o::stuff
-             g2o::types_sba
-             g2o::types_sim3
-             g2o::solver_dense
-             g2o::solver_eigen
-             g2o::solver_csparse
-             g2o::csparse_extension
-             OPTIONAL_COMPONENTS
-             g2o::csparse)
+             core
+             stuff
+             types_sba
+             types_sim3
+             solver_dense
+             solver_eigen
+             solver_csparse
+             csparse_extension)
 
-# Check first if CSparse is built from g2o
-if(TARGET g2o::csparse)
-    set(${CXSPARSE_LIBRARIES} g2o::csparse)
 # CXSparse for g2o
 find_package(CXSparse)
 if(CXSPARSE_FOUND)
