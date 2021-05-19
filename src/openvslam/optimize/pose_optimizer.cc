@@ -1,8 +1,8 @@
 #include "openvslam/data/frame.h"
 #include "openvslam/data/landmark.h"
 #include "openvslam/optimize/pose_optimizer.h"
-#include "openvslam/optimize/g2o/se3/pose_opt_edge_wrapper.h"
-#include "openvslam/optimize/g2o/se3/navigation_pose_opt_edge.h"
+#include "openvslam/optimize/internal/se3/pose_opt_edge_wrapper.h"
+#include "openvslam/optimize/internal/se3/navigation_pose_opt_edge.h"
 #include "openvslam/util/converter.h"
 #include "openvslam/navigation/navigation.h"
 
@@ -40,7 +40,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm, data::frame const& last_
 
     // 2. frameをg2oのvertexに変換してoptimizerにセットする
 
-    auto frm_vtx = new g2o::se3::shot_vertex();
+    auto frm_vtx = new internal::se3::shot_vertex();
     frm_vtx->setId(frm.id_);
     frm_vtx->setEstimate(util::converter::to_g2o_SE3(frm.cam_pose_cw_));
     frm_vtx->setFixed(false);
@@ -51,7 +51,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm, data::frame const& last_
         SPDLOG_DEBUG("Creating optimization edge between current frame with id {0} and last frame {1}",
             frm.id_, last_frm.id_);
 
-        auto last_vtx = new g2o::se3::shot_vertex();
+        auto last_vtx = new internal::se3::shot_vertex();
         last_vtx->setId(last_frm.id_);
         last_vtx->setEstimate(util::converter::to_g2o_SE3(last_frm.get_cam_pose()));
         last_vtx->setFixed(true);
@@ -68,7 +68,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm, data::frame const& last_
     // 3. landmarkのvertexをreprojection edgeで接続する
 
     // reprojection edgeのcontainer
-    using pose_opt_edge_wrapper = g2o::se3::pose_opt_edge_wrapper<data::frame>;
+    using pose_opt_edge_wrapper = internal::se3::pose_opt_edge_wrapper<data::frame>;
     std::vector<pose_opt_edge_wrapper> pose_opt_edge_wraps;
     pose_opt_edge_wraps.reserve(num_keypts);
 

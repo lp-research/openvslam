@@ -1,8 +1,8 @@
-#include "openvslam/optimize/g2o/se3/navigation_pose_opt_edge.h"
+#include "openvslam/optimize/internal/se3/navigation_pose_opt_edge.h"
 
 namespace openvslam {
 namespace optimize {
-namespace g2o {
+namespace internal {
 namespace se3 {
 
 navigation_pose_opt_edge::navigation_pose_opt_edge()

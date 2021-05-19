@@ -2,10 +2,10 @@
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/optimize/local_bundle_adjuster.h"
-#include "openvslam/optimize/g2o/landmark_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/shot_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/reproj_edge_wrapper.h"
-#include "openvslam/optimize/g2o/se3/navigation_pose_opt_edge.h"
+#include "openvslam/optimize/internal/landmark_vertex_container.h"
+#include "openvslam/optimize/internal/se3/shot_vertex_container.h"
+#include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
+#include "openvslam/optimize/internal/se3/navigation_pose_opt_edge.h"
 #include "openvslam/util/converter.h"
 #include "openvslam/navigation/navigation.h"
 
@@ -114,7 +114,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
     // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
 
     // shot vertexのcontainer
-    g2o::se3::shot_vertex_container keyfrm_vtx_container(0, local_keyfrms.size() + fixed_keyfrms.size());
+    internal::se3::shot_vertex_container keyfrm_vtx_container(0, local_keyfrms.size() + fixed_keyfrms.size());
     // vertexに変換されたkeyframesを保存しておく
     std::unordered_map<unsigned int, data::keyframe*> all_keyfrms;
 
@@ -177,10 +177,10 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
     // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
 
     // landmark vertexのcontainer
-    g2o::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, local_lms.size());
+    internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, local_lms.size());
 
     // reprojection edgeのcontainer
-    using reproj_edge_wrapper = g2o::se3::reproj_edge_wrapper<data::keyframe>;
+    using reproj_edge_wrapper = internal::se3::reproj_edge_wrapper<data::keyframe>;
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
     reproj_edge_wraps.reserve(all_keyfrms.size() * local_lms.size());
 

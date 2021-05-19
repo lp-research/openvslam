@@ -6,7 +6,7 @@
 #include "openvslam/data/navigation_state.h"
 #include "openvslam/data/keyframe.h"
 #include "openvslam/util/transformation.h"
-#include "openvslam/optimize/g2o/se3/navigation_pose_opt_edge.h"
+#include "openvslam/optimize/internal/se3/navigation_pose_opt_edge.h"
 
 #include <g2o/core/optimizable_graph.h>
 #include <g2o/core/hyper_graph.h>
@@ -125,7 +125,7 @@ namespace navigation {
     inline auto createNavigationEdge(TFrameA const* keyfrm_before, TFrameB const* keyfrm,
         g2o::HyperGraph::Vertex* v_before, g2o::HyperGraph::Vertex* v) {
         // add edge linking last and current frame
-        auto nav_edge = new optimize::g2o::se3::navigation_pose_opt_edge();
+        auto nav_edge = new optimize::internal::se3::navigation_pose_opt_edge();
 
         if (!keyfrm_before->nav_state_.valid ||
             !keyfrm->nav_state_.valid ) {

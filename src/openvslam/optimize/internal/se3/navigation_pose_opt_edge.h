@@ -2,8 +2,8 @@
 #define OPENVSLAM_OPTIMIZER_G2O_SE3_NAVIGATION_POSE_OPT_EDGE_H
 
 #include "openvslam/type.h"
-#include "openvslam/optimize/g2o/landmark_vertex.h"
-#include "openvslam/optimize/g2o/se3/shot_vertex.h"
+#include "openvslam/optimize/internal/landmark_vertex.h"
+#include "openvslam/optimize/internal/se3/shot_vertex.h"
 #include "openvslam/data/navigation_state.h"
 #include "openvslam/util/transformation.h"
 
@@ -15,7 +15,7 @@
 
 namespace openvslam {
 namespace optimize {
-namespace g2o {
+namespace internal {
 namespace se3 {
 
 class navigation_pose_opt_edge final : public 
