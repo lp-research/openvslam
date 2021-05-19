@@ -220,6 +220,10 @@ const std::shared_ptr<publish::frame_publisher> system::get_frame_publisher() co
     return frame_publisher_;
 }
 
+publish::frame_state system::get_frame_state() {
+    return get_frame_publisher()->get_frame_state();
+}
+
 void system::enable_mapping_module() {
     std::lock_guard<std::mutex> lock(mtx_mapping_);
     if (!system_is_running_) {
