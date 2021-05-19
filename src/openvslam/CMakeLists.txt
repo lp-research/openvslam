@@ -23,21 +23,19 @@ find_package(g2o REQUIRED
 # Check first if CSparse is built from g2o
 if(TARGET g2o::csparse)
     set(${CXSPARSE_LIBRARIES} g2o::csparse)
+# CXSparse for g2o
+find_package(CXSparse)
+if(CXSPARSE_FOUND)
+    include_directories(${CXSPARSE_INCLUDE_DIRS})
+endif()
+# SuiteSparse for g2o
+if(MSVC)
+    find_package(SuiteSparse CONFIG)
 else()
-    # CXSparse for g2o
-    find_package(CXSparse)
-    if(CXSPARSE_FOUND)
-        include_directories(${CXSPARSE_INCLUDE_DIRS})
-    endif()
-    # SuiteSparse for g2o
-    if(MSVC)
-        find_package(SuiteSparse CONFIG)
-    else()
-        find_package(SuiteSparse)
-    endif()
-    if(SUITESPARSE_FOUND)
-        include_directories(${SUITESPARSE_INCLUDE_DIRS})
-    endif()
+    find_package(SuiteSparse)
+endif()
+if(SUITESPARSE_FOUND)
+    include_directories(${SUITESPARSE_INCLUDE_DIRS})
 endif()
 
 # Check BoW Framework
@@ -161,7 +159,6 @@ target_link_libraries(${PROJECT_NAME}
                       g2o::solver_eigen
                       g2o::solver_csparse
                       g2o::csparse_extension
-                      ${CXSPARSE_LIBRARIES}
                       ${SUITESPARSE_LIBRARIES}
                       ${BoW_LIBRARY}
                       PRIVATE
