@@ -170,6 +170,9 @@ install(TARGETS ${PROJECT_NAME}
         LIBRARY DESTINATION ${LIBRARY_DESTINATION}
         ARCHIVE DESTINATION ${ARCHIVE_DESTINATION})
 
+# manually install shared library for csparse interfacing
+install(FILES ${CMAKE_BINARY_DIR}/lpslam/lib/libg2o_csparse_extension.so DESTINATION ${LIBRARY_DESTINATION})
+
 # Install OpenVSLAM headers
 file(GLOB HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
 install(FILES ${HEADERS}
