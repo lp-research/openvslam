@@ -31,7 +31,6 @@ void laser_scanner_2d::internal_in_world(data::laser2d const& data, Mat44_t cons
             // compute point in the occupancy map
             // laser scan values are in the coordinate system of the
             // laser scanner
-            bool isObstacle = true;
 
             // 0 degree is in the center of the lidar
             // -90 degrees is to the left of the scanner
