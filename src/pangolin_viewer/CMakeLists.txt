@@ -12,9 +12,10 @@ add_library(pangolin_viewer
             ${CMAKE_CURRENT_SOURCE_DIR}/color_scheme.cc)
 
 set_target_properties(pangolin_viewer PROPERTIES
-                      OUTPUT_NAME pangolin_viewer
-                      ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
-                      LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+                      OUTPUT_NAME pangolin_viewer)
+                      # disable custom output location to allow for easy ament build
+                      #ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
+                      #LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 
 target_include_directories(pangolin_viewer 
                            PUBLIC

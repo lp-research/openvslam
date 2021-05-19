@@ -71,9 +71,10 @@ add_library(${PROJECT_NAME}
 
 # Set output directory of the library
 set_target_properties(${PROJECT_NAME} PROPERTIES
-                      OUTPUT_NAME openvslam
-                      ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
-                      LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+                      OUTPUT_NAME openvslam)
+                      # disable custom output location to allow for easy ament build
+                      #ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
+                      #LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 
 # ----- Compile configuration -----
 
