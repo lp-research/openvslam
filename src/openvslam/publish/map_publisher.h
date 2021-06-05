@@ -63,13 +63,6 @@ public:
     void set_current_nav_pose(const Mat44_t& nav_pose_cw);
     Mat44_t get_current_nav_pose();
 
-    void add_intermediate_nav_pose(const Mat44_t& nav_pose_cw);
-    nav_poses_vector get_intermediate_nav_poses();
-
-    void set_current_ref_pose(const Mat44_t& ref_pose_cw);
-    void set_current_ref_pose(const navigation_state & nav_state);
-    Mat44_t get_current_ref_pose();
-
     /**
      * Get all keyframes
      * @param all_keyfrms
@@ -112,11 +105,6 @@ private:
 
     std::shared_ptr<module::occupancy_map_exporter> map_exporter_;
     
-    // list of navigation points which are not linked to any image
-    // which are used for smoother visualization
-    nav_poses_vector intermediate_nav_poses_;
-    std::mutex intermediate_nav_poses_lock_;
-
     // -------------------------------------------
     //! mutex to access camera pose
     std::mutex mtx_cam_pose_;
@@ -126,9 +114,6 @@ private:
     //! mutex to access navigation pose
     std::mutex mtx_nav_pose_;
     Mat44_t nav_pose_cw_ = Mat44_t::Identity();
-
-    std::mutex mtx_ref_pose_;
-    Mat44_t ref_pose_cw_ = Mat44_t::Identity();
 };
 
 } // namespace publish

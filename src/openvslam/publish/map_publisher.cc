@@ -33,36 +33,6 @@ void map_publisher::set_current_nav_pose(const Mat44_t& nav_pose_cw) {
     nav_pose_cw_ = nav_pose_cw;
 }
 
-void map_publisher::set_current_ref_pose(const navigation_state& nav_state) {
-    set_current_ref_pose(util::navDataToCameraPose(nav_state.cam_rotation,
-            nav_state.cam_translation));
-}
-
-void map_publisher::add_intermediate_nav_pose(const Mat44_t& nav_pose_cw) {
-    std::scoped_lock<std::mutex> poses_lock(intermediate_nav_poses_lock_);
-
-    if (intermediate_nav_poses_.size() > 300) {
-        // no one seems to care about these poses
-        intermediate_nav_poses_.clear();
-    }
-
-    intermediate_nav_poses_.push_back(nav_pose_cw);
-}
-
-map_publisher::nav_poses_vector map_publisher::get_intermediate_nav_poses() {
-    std::scoped_lock<std::mutex> poses_lock(intermediate_nav_poses_lock_);
-
-    nav_poses_vector tmp;
-    tmp = intermediate_nav_poses_;
-    intermediate_nav_poses_.clear();
-    return tmp;
-}
-
-void map_publisher::set_current_ref_pose(const Mat44_t& ref_pose_cw) {
-    std::lock_guard<std::mutex> lock(mtx_ref_pose_);
-    ref_pose_cw_ = ref_pose_cw;
-}
-
 Mat44_t map_publisher::get_current_cam_pose() {
     std::lock_guard<std::mutex> lock(mtx_cam_pose_);
     return cam_pose_cw_;
@@ -71,11 +41,6 @@ Mat44_t map_publisher::get_current_cam_pose() {
 Mat44_t map_publisher::get_current_nav_pose() {
     std::lock_guard<std::mutex> lock(mtx_nav_pose_);
     return nav_pose_cw_;
-}
-
-Mat44_t map_publisher::get_current_ref_pose() {
-    std::lock_guard<std::mutex> lock(mtx_ref_pose_);
-    return ref_pose_cw_;
 }
 
 unsigned int map_publisher::get_keyframes(std::vector<data::keyframe*>& all_keyfrms) {
