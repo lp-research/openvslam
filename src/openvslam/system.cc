@@ -276,7 +276,9 @@ void system::abort_loop_BA() {
     global_optimizer_->abort_loop_BA();
 }
 
-Mat44_t system::feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask, const navigation_state & navState) {
+Mat44_t system::feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask,
+    const navigation_state & navState,
+    const navigation_state & navState_map) {
     assert(camera_->setup_type_ == camera::setup_type_t::Monocular);
 
     if (cfg_->wait_for_navigation_data_ && !navState.valid){
@@ -286,7 +288,7 @@ Mat44_t system::feed_monocular_frame(const cv::Mat& img, const double timestamp,
 
     check_reset_request();
 
-    const Mat44_t cam_pose_cw = tracker_->track_monocular_image(img, timestamp, mask, navState);
+    const Mat44_t cam_pose_cw = tracker_->track_monocular_image(img, timestamp, mask, navState, navState_map);
 
     frame_publisher_->update(tracker_);
 

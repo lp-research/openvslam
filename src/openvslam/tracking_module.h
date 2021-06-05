@@ -66,7 +66,8 @@ public:
     //! Track a monocular frame
     //! (NOTE: distorted images are acceptable if calibrated)
     Mat44_t track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{},
-        const navigation_state & navState = {});
+        const navigation_state & navState = {},
+        const navigation_state & navState_map = {});
 
     //! Track a stereo frame
     //! (Note: Left and Right images must be stereo-rectified)

@@ -124,7 +124,7 @@ std::vector<int> tracking_module::get_initial_matches() const {
 }
 
 Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double timestamp, const cv::Mat& mask,
-    const navigation_state & navState) {
+    const navigation_state & navState, const navigation_state & navState_map) {
     const auto start = std::chrono::system_clock::now();
 
     // color conversion
@@ -139,6 +139,7 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
         curr_frm_ = data::frame(img_gray_, timestamp, extractor_left_, bow_vocab_, camera_, true_depth_thr_, mask);
     }
     curr_frm_.nav_state_ = navState;
+    curr_frm_.nav_state_map_ = navState_map;
 
     track();
 

@@ -112,7 +112,8 @@ public:
     //! Feed a monocular frame to SLAM system
     //! (NOTE: distorted images are acceptable if calibrated)
     Mat44_t feed_monocular_frame(const cv::Mat& img, const double timestamp, const cv::Mat& mask = cv::Mat{},
-        const navigation_state & navState = {});
+        const navigation_state & navState = {},
+        const navigation_state & navState_map = {});
 
     //! Feed a stereo frame to SLAM system
     //! (Note: Left and Right images must be stereo-rectified)
