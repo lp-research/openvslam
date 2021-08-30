@@ -7,10 +7,11 @@
 #include "openvslam/data/navigation_state.h"
 #include "openvslam/util/transformation.h"
 #include "openvslam/util/trigonometric.h"
+#include "openvslam/util/converter.h"
 
 #include "openvslam/type.h"
-#include "openvslam/optimize/g2o/landmark_vertex.h"
-#include "openvslam/optimize/g2o/se3/shot_vertex.h"
+#include "openvslam/optimize/internal/landmark_vertex.h"
+#include "openvslam/optimize/internal/se3/shot_vertex.h"
 #include "openvslam/data/navigation_state.h"
 #include "openvslam/util/transformation.h"
 
@@ -23,7 +24,7 @@
 #include <random>
 
 using namespace openvslam;
-using namespace openvslam::optimize::g2o::se3;
+using namespace openvslam::optimize::internal::se3;
 
 namespace {
     g2o::Vector6 computeErr(g2o::SE3Quat const& v1_cw, g2o::SE3Quat const& v2_cw, navigation_state const& measurement) {
