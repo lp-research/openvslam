@@ -9,6 +9,8 @@
 #include <mutex>
 #include <functional>
 #include <vector>
+#include <iomanip>
+#include <limits>
 
 #include <opencv2/core/core.hpp>
 
