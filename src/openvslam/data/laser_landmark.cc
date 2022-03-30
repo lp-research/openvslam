@@ -24,6 +24,9 @@ std::vector<Vec3_t> laser_landmark::get_points_in_world() const {
 }
 
 std::vector<std::pair<Vec3_t, Vec3_t>> laser_landmark::get_laser_rays_in_world() const {
+    if (laser_scanner_ == nullptr || !laser2d_.is_valid()) {
+        return {};
+    }
     return laser_scanner_->get_laser_rays_in_world(laser2d_, ref_keyfrm_->get_cam_pose());
 }
 
