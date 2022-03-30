@@ -1,8 +1,5 @@
 # ----- Find dependencies -----
 
-# spdlog
-set(spdlog_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/3rd/spdlog/include)
-
 # json
 set(json_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/3rd/json/include)
 
@@ -16,6 +13,7 @@ find_package(g2o REQUIRED
              solver_dense
              solver_eigen
              solver_csparse
+             spdlog
              csparse_extension)
 
 # CXSparse for g2o
@@ -130,10 +128,8 @@ endif()
 target_include_directories(${PROJECT_NAME}
                            PUBLIC
                            $<BUILD_INTERFACE:${json_INCLUDE_DIR}>
-                           $<BUILD_INTERFACE:${spdlog_INCLUDE_DIR}>
                            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/>
                            $<INSTALL_INTERFACE:include/openvslam/3rd/json/include>
-                           $<INSTALL_INTERFACE:include/openvslam/3rd/spdlog/include>
                            $<INSTALL_INTERFACE:include/>)
 
 # Link to required libraries
@@ -181,8 +177,6 @@ install(FILES ${HEADERS}
 # Install 3rd party headers
 install(FILES ${json_INCLUDE_DIR}/nlohmann/json.hpp ${json_INCLUDE_DIR}/nlohmann/json_fwd.hpp
         DESTINATION ${OPENVSLAM_INCLUDE_INSTALL_DIR}/3rd/json/include/nlohmann)
-install(DIRECTORY ${spdlog_INCLUDE_DIR}
-        DESTINATION ${OPENVSLAM_INCLUDE_INSTALL_DIR}/3rd/spdlog)
 
 # ----- Append subdirectory -----
 
