@@ -115,9 +115,14 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     global_optimizer_ = new global_optimization_module(map_db_, bow_db_, bow_vocab_, cfg_->yaml_node_, camera_->setup_type_ != camera::setup_type_t::Monocular);
 
 
-    // create retifier, make optional
-    if (cfg_->yaml_node_["StereoRectifier.model"]) {
-        rectifier_ = std::make_unique<util::stereo_rectifier>(cfg_);
+    // create rectifier, make optional
+    if (cfg_->yaml_node_["StereoRectifier"]) {
+        if (cfg_->yaml_node_["StereoRectifier"]["model"]) {
+            spdlog::info("rectifier model found, going to rectify");
+            rectifier_ = std::make_unique<util::stereo_rectifier>(cfg_);
+        }
+    } else {
+        spdlog::warn("rectifier model not found in the config, skipping this step");
     }
 
     // connect modules each other
